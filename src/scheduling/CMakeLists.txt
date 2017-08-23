@@ -40,6 +40,7 @@ set(SCHEDULING_TESTS
   scheduling/flow/flow_graph_change_manager_test.cc
   scheduling/flow/flow_graph_manager_test.cc
   scheduling/flow/flow_graph_test.cc
+  scheduling/firmament_service_queue_test.cc
 )
 
 #add_library(firmament_scheduling ${SCHEDULING_SRC} ${SCHEDULING_PROTOBUFS_SRCS} ${SCHEDULING_PROTOBUF_HDRS})
