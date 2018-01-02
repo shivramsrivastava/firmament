@@ -51,6 +51,21 @@ else (${ENABLE_PRIVATE_FLOWLESSLY})
 endif (${ENABLE_PRIVATE_FLOWLESSLY})
 
 ###############################################################################
+# Lemon solver
+if (${ENABLE_LEMON_SOLVER})
+  ExternalProject_Add(
+          lemon-solver
+          GIT_REPOSITORY https://github.com/shivramsrivastava/lemon-solver.git
+          TIMEOUT 10
+          PREFIX ${CMAKE_CURRENT_BINARY_DIR}/third_party/lemon-solver
+          # no install required, we link the library from the build tree
+          INSTALL_COMMAND ""
+          # Wrap download, configure and build steps in a script to log output
+          LOG_DOWNLOAD ON
+          LOG_BUILD ON)
+endif (${ENABLE_LEMON_SOLVER})
+
+###############################################################################
 # cpplint
 ExternalProject_Add(
     cpplint

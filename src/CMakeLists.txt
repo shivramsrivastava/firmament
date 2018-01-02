@@ -105,7 +105,7 @@ add_executable(firmament_scheduler
   $<TARGET_OBJECTS:scheduling>
   )
 
-add_dependencies(firmament_scheduler cs2 flowlessly grpc gtest pion protobuf3
+add_dependencies(firmament_scheduler cs2 flowlessly lemon-solver grpc gtest pion protobuf3
   spooky-hash thread-safe-stl-containers)
 
 target_link_libraries(firmament_scheduler LINK_PUBLIC ${grpc_LIBRARY}
@@ -141,7 +141,7 @@ add_library(firmament_scheduling SHARED
   ${MISC_TRACE_GENERATOR_SRC}
   ${SCHEDULING_SRC} ${SCHEDULING_PROTOBUF_SRCS})
 
-add_dependencies(firmament_scheduling protobuf3 cs2 flowlessly gtest pion
+add_dependencies(firmament_scheduling protobuf3 cs2 flowlessly lemon-solver gtest pion
   spooky-hash thread-safe-stl-containers)
 
 target_link_libraries(firmament_scheduling LINK_PUBLIC ${protobuf3_LIBRARY}

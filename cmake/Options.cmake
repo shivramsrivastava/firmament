@@ -13,6 +13,7 @@ option(BUILD_TESTS "Builds the unit tests." ON)
 # Solver options
 option(ENABLE_CS2 "Downloads, compiles and enables the cs2 solver (academic license only)." ON)
 option(ENABLE_PRIVATE_FLOWLESSLY "Downloads, compiles and enables the private Flowlessly solver. Otherwise, it downloads, compiles and enables the public Flowlessly solver." OFF)
+option(ENABLE_LEMON_SOLVER "Downloads, compiles and enables the lemon solver." ON)
 
 # Coordinator options
 option(ENABLE_HDFS "Support HDFS-based locality information in Coordinator." OFF)
