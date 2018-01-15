@@ -1,5 +1,22 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #include "scheduling/flow/void_cost_model.h"
 
@@ -11,6 +28,7 @@
 #include "misc/map-util.h"
 #include "scheduling/knowledge_base.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/flow/cost_model_utils.h"
 
 DECLARE_uint64(max_tasks_per_pu);
 
@@ -21,64 +39,64 @@ VoidCostModel::VoidCostModel(shared_ptr<ResourceMap_t> resource_map,
     : resource_map_(resource_map), task_map_(task_map) {
 }
 
-Cost_t VoidCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t VoidCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
 Cost_t VoidCostModel::TaskToClusterAggCost(TaskID_t task_id) {
   return 0LL;
 }
 
-Cost_t VoidCostModel::TaskToResourceNodeCost(TaskID_t task_id,
-                                             ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::TaskToResourceNode(TaskID_t task_id,
+                                                ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
 Cost_t VoidCostModel::ClusterAggToResourceNodeCost(ResourceID_t target) {
   return 0LL;
 }
 
-Cost_t VoidCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor VoidCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
-  return 0LL;
+  return ArcDescriptor(0LL, CapacityFromResNodeToParent(destination), 0ULL);
 }
 
-Cost_t VoidCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::LeafResourceNodeToSink(ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t VoidCostModel::TaskContinuationCost(TaskID_t task_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::TaskContinuation(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t VoidCostModel::TaskPreemptionCost(TaskID_t task_id) {
-  return 0LL;
+ArcDescriptor VoidCostModel::TaskPreemption(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t VoidCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                 EquivClass_t tec) {
-  return 0LL;
+ArcDescriptor VoidCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                        EquivClass_t tec) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> VoidCostModel::EquivClassToResourceNode(
+ArcDescriptor VoidCostModel::EquivClassToResourceNode(
     EquivClass_t tec,
     ResourceID_t res_id) {
   ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
   CHECK_NOTNULL(rs);
   uint64_t num_free_slots = rs->descriptor().num_slots_below() -
     rs->descriptor().num_running_tasks_below();
-  return pair<Cost_t, uint64_t>(0LL, num_free_slots);
+  return ArcDescriptor(0LL, num_free_slots, 0ULL);
 }
 
-pair<Cost_t, uint64_t> VoidCostModel::EquivClassToEquivClass(
+ArcDescriptor VoidCostModel::EquivClassToEquivClass(
     EquivClass_t tec1,
     EquivClass_t tec2) {
-  return pair<Cost_t, uint64_t>(0LL, 0ULL);
+  return ArcDescriptor(0LL, 0ULL, 0ULL);
 }
 
 vector<EquivClass_t>* VoidCostModel::GetTaskEquivClasses(TaskID_t task_id) {

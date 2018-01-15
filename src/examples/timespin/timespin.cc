@@ -1,14 +1,9 @@
-// The Firmament project
-// Copyright (c) 2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
-// Adaptation of Derek Murray's timespin micro-benchmark for Firmament.
-
 /**
  * Simple script that busy-waits until a timer expires, with duration
  * specified (in seconds) on argv[1].
  *
  * Copyright (c) 2011 Derek Murray <Derek.Murray@cl.cam.ac.uk>
- * Copyright (c) 2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+ * Copyright (c) The Firmament Authors.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,6 +18,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// Adaptation of Derek Murray's timespin micro-benchmark for Firmament.
 #include "examples/timespin/timespin.h"
 #include "examples/task_lib_bridge.h"
 

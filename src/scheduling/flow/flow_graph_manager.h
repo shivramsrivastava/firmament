@@ -1,6 +1,22 @@
-// The Firmament project
-// Copyright (c) 2013 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #ifndef FIRMAMENT_SCHEDULING_FLOW_FLOW_GRAPH_MANAGER_H
 #define FIRMAMENT_SCHEDULING_FLOW_FLOW_GRAPH_MANAGER_H
@@ -64,6 +80,7 @@ class FlowGraphManager {
       boost::function<FlowGraphNode*(FlowGraphNode*, FlowGraphNode*)> gather,
       boost::function<FlowGraphNode*(FlowGraphNode*, FlowGraphNode*)> update);
   void JobCompleted(JobID_t job_id);
+  void JobRemoved(JobID_t job_id);
   void NodeBindingToSchedulingDeltas(
       uint64_t task_node_id, uint64_t resource_node_id,
       unordered_map<TaskID_t, ResourceID_t>* task_bindings,
@@ -98,6 +115,7 @@ class FlowGraphManager {
   void TaskMigrated(TaskID_t task_id,
                     ResourceID_t old_res_id,
                     ResourceID_t new_res_id);
+  void TaskRemoved(TaskID_t task_id);
   void TaskScheduled(TaskID_t task_id, ResourceID_t res_id);
 
   /**
@@ -130,11 +148,15 @@ class FlowGraphManager {
   FRIEND_TEST(FlowGraphManagerTest, AddTaskNode);
   FRIEND_TEST(FlowGraphManagerTest, AddUnscheduledAggNode);
   FRIEND_TEST(FlowGraphManagerTest, PinTaskToNode);
+  FRIEND_TEST(FlowGraphManagerTest, PurgeUnconnectedEquivClassNodes);
   FRIEND_TEST(FlowGraphManagerTest, RemoveEquivClassNode);
   FRIEND_TEST(FlowGraphManagerTest, RemoveInvalidECPrefArcs);
   FRIEND_TEST(FlowGraphManagerTest, RemoveInvalidPrefResArcs);
   FRIEND_TEST(FlowGraphManagerTest, RemoveResourceNode);
+  FRIEND_TEST(FlowGraphManagerTest, RemoveTaskHelper);
+  FRIEND_TEST(FlowGraphManagerTest, TaskScheduled);
   FRIEND_TEST(FlowGraphManagerTest, TraverseAndRemoveTopology);
+  FRIEND_TEST(FlowGraphManagerTest, UpdateAllCostsToUnscheduledAggs);
   FRIEND_TEST(FlowGraphManagerTest, UpdateArcsForScheduledTask);
   FRIEND_TEST(FlowGraphManagerTest, UpdateChildrenTasks);
   FRIEND_TEST(FlowGraphManagerTest, UpdateEquivClassNode);
@@ -167,7 +189,6 @@ class FlowGraphManager {
 
   FlowGraphNode* AddTaskNode(JobID_t job_id, TaskDescriptor* td_ptr);
   FlowGraphNode* AddUnscheduledAggNode(JobID_t job_id);
-  uint64_t CapacityFromResNodeToParent(const ResourceDescriptor& rd);
   void PinTaskToNode(FlowGraphNode* task_node, FlowGraphNode* res_node);
   void RemoveEquivClassNode(FlowGraphNode* ec_node);
 
@@ -193,6 +214,7 @@ class FlowGraphManager {
                                 const vector<ResourceID_t>& pref_resources,
                                 DIMACSChangeType change_type);
   void RemoveResourceNode(FlowGraphNode* res_node);
+  void RemoveTaskHelper(TaskID_t task_id);
   uint64_t RemoveTaskNode(FlowGraphNode* task_node);
   void RemoveUnscheduledAggNode(JobID_t job_id);
 

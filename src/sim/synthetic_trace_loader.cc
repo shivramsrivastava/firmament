@@ -1,6 +1,22 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #include "sim/synthetic_trace_loader.h"
 
@@ -33,6 +49,7 @@ DEFINE_bool(prepopulate_using_interarrival, false, "True if the prepopulated "
 DECLARE_uint64(max_tasks_per_pu);
 DECLARE_uint64(runtime);
 DECLARE_double(trace_speed_up);
+DECLARE_bool(task_duration_oracle);
 
 namespace firmament {
 namespace sim {
@@ -178,7 +195,8 @@ bool SyntheticTraceLoader::LoadTaskEvents(
 }
 
 void SyntheticTraceLoader::LoadTaskUtilizationStats(
-    unordered_map<TaskID_t, TraceTaskStats>* task_id_to_stats) {
+    unordered_map<TaskID_t, TraceTaskStats>* task_id_to_stats,
+    const unordered_map<TaskID_t, uint64_t>& task_runtimes) {
   uint64_t usec_between_jobs = FLAGS_synthetic_job_interarrival_time;
   TraceTaskStats task_stats;
   task_stats.avg_mean_cpu_usage_ = 0.5;
@@ -193,10 +211,14 @@ void SyntheticTraceLoader::LoadTaskUtilizationStats(
     for (uint64_t task_index = 1;
          task_index <= num_tasks_at_beginning;
          ++task_index) {
+      TaskID_t tid = GenerateTaskIDFromTraceIdentifier(task_identifier);
       task_identifier.task_index = task_index;
-      CHECK(InsertIfNotPresent(
-          task_id_to_stats, GenerateTaskIDFromTraceIdentifier(task_identifier),
-          task_stats));
+      if (FLAGS_task_duration_oracle) {
+        uint64_t runtime = 0;
+        CHECK(FindCopy(task_runtimes, tid, &runtime));
+        task_stats.total_runtime_ = runtime;
+      }
+      CHECK(InsertIfNotPresent(task_id_to_stats, tid, task_stats));
     }
   }
   uint64_t job_id = 1;
@@ -208,9 +230,13 @@ void SyntheticTraceLoader::LoadTaskUtilizationStats(
     for (uint64_t task_index = 1; task_index <= FLAGS_synthetic_tasks_per_job;
          ++task_index) {
       task_identifier.task_index = task_index;
-      CHECK(InsertIfNotPresent(
-          task_id_to_stats, GenerateTaskIDFromTraceIdentifier(task_identifier),
-          task_stats));
+      TaskID_t tid = GenerateTaskIDFromTraceIdentifier(task_identifier);
+      if (FLAGS_task_duration_oracle) {
+        uint64_t runtime = 0;
+        CHECK(FindCopy(task_runtimes, tid, &runtime));
+        task_stats.total_runtime_ = runtime;
+      }
+      CHECK(InsertIfNotPresent(task_id_to_stats, tid, task_stats));
     }
   }
 }

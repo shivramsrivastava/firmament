@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Google cluster trace simulator tool.
 
 #include "sim/google_trace_loader.h"
@@ -29,8 +46,8 @@ DEFINE_int32(num_files_to_process, 500, "Number of files to process.");
 DEFINE_string(trace_path, "", "Path where the trace files are.");
 DEFINE_uint64(sim_machine_max_cores, 12,
               "Maximum number of cores the simulated machines have");
-DEFINE_uint64(sim_machine_max_ram, 65536,
-              "Maximum ram size (in MB) the simulated machines have");
+DEFINE_uint64(sim_machine_max_ram, 67108864,
+              "Maximum ram size (in KB) the simulated machines have");
 DEFINE_uint64(num_tasks_synthetic_job_after_initial_run, 1,
               "Number of tasks the synthetic job added after initial scheduler "
               "run.");
@@ -38,10 +55,12 @@ DEFINE_uint64(synthetic_task_runtime, 1000000,
               "Runtime of the synthetic task (in us)");
 
 DECLARE_uint64(runtime);
+DECLARE_string(simulation);
 DECLARE_double(trace_speed_up);
+DECLARE_bool(task_duration_oracle);
 
 static bool ValidateTracePath(const char* flagname, const string& trace_path) {
-  if (trace_path.empty()) {
+  if (FLAGS_simulation == "google" && trace_path.empty()) {
     LOG(ERROR) << "Please specify a path to the Google trace!";
     return false;
   }
@@ -267,7 +286,8 @@ bool GoogleTraceLoader::LoadTaskEvents(
 }
 
 void GoogleTraceLoader::LoadTaskUtilizationStats(
-    unordered_map<TaskID_t, TraceTaskStats>* task_id_to_stats) {
+    unordered_map<TaskID_t, TraceTaskStats>* task_id_to_stats,
+    const unordered_map<TaskID_t, uint64_t>& task_runtimes) {
   char line[MAX_LINE_LENGTH];
   vector<string> cols;
   FILE* usage_file = NULL;
@@ -299,6 +319,15 @@ void GoogleTraceLoader::LoadTaskUtilizationStats(
         TraceTaskIdentifier ti;
         ti.job_id = lexical_cast<uint64_t>(cols[0]);
         ti.task_index = lexical_cast<uint64_t>(cols[1]);
+        TaskID_t tid = GenerateTaskIDFromTraceIdentifier(ti);
+
+        // Sub-sample the trace if we only retain < 100% of tasks.
+        if (SpookyHash::Hash64(&ti, sizeof(ti), kSeed) >
+            MaxEventHashToRetain()) {
+          // skip event
+          continue;
+        }
+
         TraceTaskStats task_stats;
         task_stats.avg_mean_cpu_usage_ = lexical_cast<double>(cols[4]);
         task_stats.avg_canonical_mem_usage_ = lexical_cast<double>(cols[8]);
@@ -310,9 +339,13 @@ void GoogleTraceLoader::LoadTaskUtilizationStats(
         task_stats.avg_cpi_ = lexical_cast<double>(cols[32]);
         task_stats.avg_mai_ = lexical_cast<double>(cols[36]);
 
-        if (!InsertIfNotPresent(task_id_to_stats,
-                                GenerateTaskIDFromTraceIdentifier(ti),
-                                task_stats) &&
+        if (FLAGS_task_duration_oracle) {
+          uint64_t runtime = 0;
+          CHECK(FindCopy(task_runtimes, tid, &runtime));
+          task_stats.total_runtime_ = runtime;
+        }
+
+        if (!InsertIfNotPresent(task_id_to_stats, tid, task_stats) &&
             VLOG_IS_ON(1)) {
           LOG(ERROR) << "LoadTaskUtilizationStats: There should not be more "
                      << "than an entry for job " << ti.job_id
@@ -396,15 +429,15 @@ void GoogleTraceLoader::LoadTasksRunningTime(
           // skip event
           continue;
         }
+
         // Get the total runtime of the task. This includes the time
         // of the runs that failed or were killed. In this way, we make
         // sure that the task runs for the same amount of time as when
         // it executed in real-world.
         uint64_t runtime = lexical_cast<uint64_t>(cols[4]);
         runtime /= FLAGS_trace_speed_up;
-        if (!InsertIfNotPresent(task_runtime,
-                                GenerateTaskIDFromTraceIdentifier(ti),
-                                runtime) &&
+        TaskID_t tid = GenerateTaskIDFromTraceIdentifier(ti);
+        if (!InsertIfNotPresent(task_runtime, tid, runtime) &&
             VLOG_IS_ON(1)) {
           LOG(ERROR) << "LoadTasksRunningTime: There should not be more than "
                      << "one entry for job " << ti.job_id

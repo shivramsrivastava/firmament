@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Simulator tool.
 
 #include "sim/simulator.h"
@@ -38,6 +55,9 @@ DEFINE_bool(exit_simulation_after_last_task_event, false,
             "True if the simulation should not wait for the running tasks "
             "to complete");
 DEFINE_double(trace_speed_up, 1, "Factor by which to speed up events");
+DEFINE_bool(enable_task_interference, false,
+            "True if task runtimes should be affected by co-location "
+            "interference");
 
 DECLARE_uint64(heartbeat_interval);
 DECLARE_uint64(max_solver_runtime);
@@ -159,7 +179,7 @@ void Simulator::Run() {
     FLAGS_incremental_flow = FLAGS_run_incremental_scheduler;
     FLAGS_only_read_assignment_changes = true;
     FLAGS_flow_scheduling_binary =
-        SOLVER_DIR "/flowlessly/src/flowlessly/build/flow_scheduler";
+        SOLVER_DIR "/flowlessly/src/flowlessly-build/flow_scheduler";
   } else if (!FLAGS_solver.compare("cs2")) {
     FLAGS_incremental_flow = false;
     FLAGS_only_read_assignment_changes = false;
@@ -188,8 +208,15 @@ uint64_t Simulator::ScheduleJobsHelper(uint64_t run_scheduler_at) {
         return event_manager_->GetTimeOfNextSchedulerRun(
             run_scheduler_at, scheduler_stats.scheduler_runtime_);
       } else {
-        return event_manager_->GetTimeOfNextSchedulerRun(
-            run_scheduler_at, scheduler_stats.algorithm_runtime_);
+        if (scheduler_stats.algorithm_runtime_ ==
+            numeric_limits<uint64_t>::max()) {
+          // Scheduler hasn't executed.
+          return event_manager_->GetTimeOfNextSchedulerRun(
+                     run_scheduler_at, 0);
+        } else {
+          return event_manager_->GetTimeOfNextSchedulerRun(
+                     run_scheduler_at, scheduler_stats.algorithm_runtime_);
+        }
       }
     } else if (FLAGS_solver_runtime_accounting_mode == "solver") {
       return event_manager_->GetTimeOfNextSchedulerRun(

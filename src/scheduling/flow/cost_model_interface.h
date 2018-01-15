@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Abstract class representing the interface for cost model implementations.
 
 #ifndef FIRMAMENT_SCHEDULING_FLOW_COST_MODEL_INTERFACE_H
@@ -32,6 +48,17 @@ enum CostModelType {
   COST_MODEL_OCTOPUS = 6,
   COST_MODEL_VOID = 7,
   COST_MODEL_NET = 8,
+  COST_MODEL_QUINCY_INTERFERENCE = 9,
+};
+
+struct ArcDescriptor {
+  ArcDescriptor(Cost_t cost, uint64_t capacity, uint64_t min_flow) :
+    cost_(cost), capacity_(capacity), min_flow_(min_flow), gain_(1.0) {
+  }
+  Cost_t cost_;
+  uint64_t capacity_;
+  uint64_t min_flow_;
+  double gain_;
 };
 
 // Forward declarations to avoid cyclic dependencies
@@ -48,49 +75,71 @@ class CostModelInterface {
    * calls. It is used to adjust the cost of leaving a task unscheduled after
    * each iteration.
    */
-  virtual Cost_t TaskToUnscheduledAggCost(TaskID_t task_id) = 0;
-  virtual Cost_t UnscheduledAggToSinkCost(JobID_t job_id) = 0;
+  virtual ArcDescriptor TaskToUnscheduledAgg(TaskID_t task_id) = 0;
+  // TODO(ionel): The returned capacity is ignored because the cost models
+  // do not set it correctly.
+  virtual ArcDescriptor UnscheduledAggToSink(JobID_t job_id) = 0;
 
   /**
-   * Get the cost of a preference arc from a task node to a resource node.
+   * Get the cost, the capacity and the minimum flow of a preference arc from a
+   * task node to a resource node.
+   * @return the cost, min flow requirement and max capacity of the arc
    */
-  virtual Cost_t TaskToResourceNodeCost(TaskID_t task_id,
-                                        ResourceID_t resource_id) = 0;
+  virtual ArcDescriptor TaskToResourceNode(TaskID_t task_id,
+                                           ResourceID_t resource_id) = 0;
 
   /**
-   * Get the cost of an arc between two resource nodes.
+   * Get the cost, the capacity and the minimum flow of an arc between two
+   * resource nodes.
+   * @return the cost, min flow requirement and max capacity of the arc
    */
-  virtual Cost_t ResourceNodeToResourceNodeCost(
+  virtual ArcDescriptor ResourceNodeToResourceNode(
       const ResourceDescriptor& source,
       const ResourceDescriptor& destination) = 0;
+
   /**
-   * Get the cost of an arc from a resource to the sink.
-   **/
-  virtual Cost_t LeafResourceNodeToSinkCost(ResourceID_t resource_id) = 0;
+   * Get the cost, the capacity and the minimu, flow of an arc from a resource
+   * to the sink.
+   * @return the cost, min flow requirement and max capacity of the arc
+   */
+  virtual ArcDescriptor LeafResourceNodeToSink(ResourceID_t resource_id) = 0;
 
   // Costs pertaining to preemption (i.e. already running tasks)
-  virtual Cost_t TaskContinuationCost(TaskID_t task_id) = 0;
-  virtual Cost_t TaskPreemptionCost(TaskID_t task_id) = 0;
+  // TODO(ionel): TaskContinuation should return min_flow_requirement = 1 when
+  // task can not be preempted.
+  virtual ArcDescriptor TaskContinuation(TaskID_t task_id) = 0;
+  virtual ArcDescriptor TaskPreemption(TaskID_t task_id) = 0;
 
   /**
-   * Get the cost of an arc from a task node to an equivalence class node.
+   * Get the cost, the capacity and the minimum flow of an arc from a task node
+   * to an equivalence class node.
+   * @param task_id the task id of the source
+   * @param tec the destination equivalence class
+   * @return the cost, min flow requirement and max capacity of the arc
    */
-  virtual Cost_t TaskToEquivClassAggregator(TaskID_t task_id,
-                                            EquivClass_t tec) = 0;
+  virtual ArcDescriptor TaskToEquivClassAggregator(TaskID_t task_id,
+                                                   EquivClass_t tec) = 0;
+
   /**
-   * Get the cost of an arc from an equivalence class node to a resource node.
+   * Get the cost, the capacity and the minimum flow of an arc from an
+   * equivalence class node to a resource node.
+   * @param tec the source equivalence class
+   * @param res_id the destination resource
+   * @return the cost, min flow requirement and max capacity of the arc
    */
-  virtual pair<Cost_t, uint64_t> EquivClassToResourceNode(
-      EquivClass_t tec,
-      ResourceID_t res_id) = 0;
+  virtual ArcDescriptor EquivClassToResourceNode(EquivClass_t tec,
+                                                 ResourceID_t res_id) = 0;
+
   /**
-   * Get the cost and the capacity of an arc from an equivalence class node to
-   * another equivalence class node.
+   * Get the cost, the capacity and the minimum flow of an arc from an
+   * equivalence class node to another equivalence class node.
    * @param tec1 the source equivalence class
    * @param tec2 the destination equivalence class
+   * @return the cost, min flow requirement and max capacity of the arc
    */
-  virtual pair<Cost_t, uint64_t> EquivClassToEquivClass(EquivClass_t tec1,
-                                                        EquivClass_t tec2) = 0;
+  virtual ArcDescriptor EquivClassToEquivClass(EquivClass_t tec1,
+                                               EquivClass_t tec2) = 0;
+
   /**
    * Get the equivalence classes of a task.
    * @param task_id the task id for which to get the equivalence classes

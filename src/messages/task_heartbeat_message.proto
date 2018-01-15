@@ -1,5 +1,5 @@
 // The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
+// Copyright (c) The Firmament Authors.
 //
 // Task-related messages, convering task creation and task completion.
 
@@ -7,11 +7,11 @@ syntax = "proto3";
 
 package firmament;
 
-import "base/task_perf_statistics_sample.proto";
+import "base/task_stats.proto";
 
 message TaskHeartbeatMessage {
   uint64 task_id = 1;
   string location = 2;
   uint64 sequence_number = 3;
-  TaskPerfStatisticsSample stats = 4;
+  TaskStats stats = 4;
 }

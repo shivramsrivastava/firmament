@@ -1,6 +1,22 @@
-// The Firmament project
-// Copyright (c) 2016 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #include "scheduling/flow/net_cost_model.h"
 
@@ -10,7 +26,9 @@
 #include "misc/utils.h"
 #include "misc/map-util.h"
 #include "scheduling/knowledge_base.h"
+#include "scheduling/label_utils.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/flow/cost_model_utils.h"
 #include "scheduling/flow/flow_graph_manager.h"
 
 DEFINE_uint64(max_multi_arcs, 10, "Maximum number of multi-arcs.");
@@ -26,52 +44,52 @@ NetCostModel::NetCostModel(shared_ptr<ResourceMap_t> resource_map,
     knowledge_base_(knowledge_base) {
 }
 
-Cost_t NetCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
-  return 2500;
+ArcDescriptor NetCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
+  return ArcDescriptor(2560000, 1ULL, 0ULL);
 }
 
-Cost_t NetCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0LL;
+ArcDescriptor NetCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t NetCostModel::TaskToResourceNodeCost(TaskID_t task_id,
-                                            ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor NetCostModel::TaskToResourceNode(TaskID_t task_id,
+                                               ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t NetCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor NetCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
-  return 0LL;
+  return ArcDescriptor(0LL, CapacityFromResNodeToParent(destination), 0ULL);
 }
 
-Cost_t NetCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor NetCostModel::LeafResourceNodeToSink(ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t NetCostModel::TaskContinuationCost(TaskID_t task_id) {
+ArcDescriptor NetCostModel::TaskContinuation(TaskID_t task_id) {
   // TODO(ionel): Implement before running with preemption enabled.
-  return 0LL;
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t NetCostModel::TaskPreemptionCost(TaskID_t task_id) {
+ArcDescriptor NetCostModel::TaskPreemption(TaskID_t task_id) {
   // TODO(ionel): Implement before running with preemption enabled.
-  return 0LL;
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t NetCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                EquivClass_t ec) {
-  return 0LL;
+ArcDescriptor NetCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                       EquivClass_t ec) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> NetCostModel::EquivClassToResourceNode(
+ArcDescriptor NetCostModel::EquivClassToResourceNode(
     EquivClass_t ec,
     ResourceID_t res_id) {
   // The arcs between ECs an machine can only carry unit flow.
-  return pair<Cost_t, uint64_t>(0LL, 1ULL);
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> NetCostModel::EquivClassToEquivClass(
+ArcDescriptor NetCostModel::EquivClassToEquivClass(
     EquivClass_t ec1,
     EquivClass_t ec2) {
   uint64_t* required_net_rx_bw = FindOrNull(ec_rx_bw_requirement_, ec1);
@@ -87,24 +105,28 @@ pair<Cost_t, uint64_t> NetCostModel::EquivClassToEquivClass(
   CHECK_NOTNULL(index);
   uint64_t ec_index = *index + 1;
   if (available_net_rx_bw < *required_net_rx_bw * ec_index) {
-    return pair<Cost_t, uint64_t>(0LL, 0ULL);
+    return ArcDescriptor(0LL, 0ULL, 0ULL);
   }
-  return pair<Cost_t, uint64_t>(static_cast<int64_t>(ec_index) *
-                                static_cast<int64_t>(*required_net_rx_bw) -
-                                static_cast<int64_t>(available_net_rx_bw) +
-                                1250LL, 1ULL);
+  return ArcDescriptor(static_cast<int64_t>(ec_index) *
+                       static_cast<int64_t>(*required_net_rx_bw) -
+                       static_cast<int64_t>(available_net_rx_bw) + 1280000,
+                       1ULL, 0ULL);
 }
 
-vector<EquivClass_t>* NetCostModel::GetTaskEquivClasses(
-    TaskID_t task_id) {
+vector<EquivClass_t>* NetCostModel::GetTaskEquivClasses(TaskID_t task_id) {
   vector<EquivClass_t>* ecs = new vector<EquivClass_t>();
-  // Get the equivalence class for the task's required rx bw.
+  TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
+  CHECK_NOTNULL(td_ptr);
+  // Get the equivalence class for the task's required rx bw and label selectors.
   uint64_t* task_required_rx_bw = FindOrNull(task_rx_bw_requirement_, task_id);
   CHECK_NOTNULL(task_required_rx_bw);
-  EquivClass_t rx_bw_ec =
-    static_cast<EquivClass_t>(HashInt(*task_required_rx_bw));
-  ecs->push_back(rx_bw_ec);
-  InsertIfNotPresent(&ec_rx_bw_requirement_, rx_bw_ec, *task_required_rx_bw);
+  size_t rx_bw_selectors_hash = scheduler::HashSelectors(td_ptr->label_selectors());
+  boost::hash_combine(rx_bw_selectors_hash, *task_required_rx_bw);
+  EquivClass_t rx_bw_selectors_ec = static_cast<EquivClass_t>(rx_bw_selectors_hash);
+  ecs->push_back(rx_bw_selectors_ec);
+  InsertIfNotPresent(&ec_rx_bw_requirement_, rx_bw_selectors_ec, *task_required_rx_bw);
+  InsertIfNotPresent(&ec_to_label_selectors, rx_bw_selectors_ec,
+                     td_ptr->label_selectors());
   return ecs;
 }
 
@@ -128,11 +150,16 @@ vector<EquivClass_t>* NetCostModel::GetEquivClassToEquivClassesArcs(
   vector<EquivClass_t>* pref_ecs = new vector<EquivClass_t>();
   uint64_t* required_net_rx_bw = FindOrNull(ec_rx_bw_requirement_, ec);
   if (required_net_rx_bw) {
+    const RepeatedPtrField<LabelSelector>* label_selectors =
+      FindOrNull(ec_to_label_selectors, ec);
+    CHECK_NOTNULL(label_selectors);
     // if EC is a rx bw EC then connect it to machine ECs.
     for (auto& ec_machines : ecs_for_machines_) {
       ResourceStatus* rs = FindPtrOrNull(*resource_map_, ec_machines.first);
       CHECK_NOTNULL(rs);
       const ResourceDescriptor& rd = rs->topology_node().resource_desc();
+      if (!scheduler::SatisfiesLabelSelectors(rd, *label_selectors))
+        continue;
       uint64_t available_net_rx_bw =
         rd.max_available_resources_below().net_rx_bw();
       ResourceID_t res_id = ResourceIDFromString(rd.uuid());
@@ -225,7 +252,7 @@ FlowGraphNode* NetCostModel::GatherStats(FlowGraphNode* accumulator,
   if (accumulator->type_ == FlowNodeType::MACHINE) {
     ResourceDescriptor* rd_ptr = accumulator->rd_ptr_;
     // Grab the latest available resource sample from the machine
-    MachinePerfStatisticsSample latest_stats;
+    ResourceStats latest_stats;
     // Take the most recent sample for now
     bool have_sample =
       knowledge_base_->GetLatestStatsForMachine(accumulator->resource_id_,
@@ -233,22 +260,22 @@ FlowGraphNode* NetCostModel::GatherStats(FlowGraphNode* accumulator,
     if (have_sample) {
       rd_ptr->mutable_available_resources()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          latest_stats.net_tx_bw() / BYTES_TO_MB);
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_max_available_resources_below()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          latest_stats.net_tx_bw() / BYTES_TO_MB);
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_min_available_resources_below()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          latest_stats.net_tx_bw() / BYTES_TO_MB);
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_available_resources()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          latest_stats.net_rx_bw() / BYTES_TO_MB);
+          latest_stats.net_rx_bw());
       rd_ptr->mutable_max_available_resources_below()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          latest_stats.net_rx_bw() / BYTES_TO_MB);
+          latest_stats.net_rx_bw());
       rd_ptr->mutable_min_available_resources_below()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          latest_stats.net_rx_bw() / BYTES_TO_MB);
+          latest_stats.net_rx_bw());
     }
   }
 

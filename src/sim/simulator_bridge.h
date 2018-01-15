@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Bridge between the simulator and Firmament.
 
 #ifndef FIRMAMENT_SIM_SIMULATOR_BRIDGE_H
@@ -18,6 +35,7 @@
 #include "scheduling/scheduling_event_notifier_interface.h"
 #include "sim/dfs/simulated_data_layer_manager.h"
 #include "sim/event_manager.h"
+#include "sim/interference/task_interference_interface.h"
 #include "sim/knowledge_base_simulator.h"
 #include "sim/simulated_wall_time.h"
 #include "sim/trace_loader.h"
@@ -66,6 +84,7 @@ class SimulatorBridge : public scheduler::SchedulingEventNotifierInterface {
    * @param job_id the id of the completed job
    */
   void OnJobCompletion(JobID_t job_id);
+  void OnJobRemoval(JobID_t job_id);
 
   /**
    * Event called by the event driven scheduler when the scheduler finishes
@@ -106,9 +125,11 @@ class SimulatorBridge : public scheduler::SchedulingEventNotifierInterface {
   /**
    * Event called by the event driven scheduler upon task migration.
    * @param td_ptr the descriptor of the migrated task
+   * @param old_rd_ptr descriptor of the resource from which task is migrated
    * @param rd_ptr the descriptor of the resource to which the task is migrated
    */
   void OnTaskMigration(TaskDescriptor* td_ptr,
+                       ResourceDescriptor* old_rd_ptr,
                        ResourceDescriptor* rd_ptr);
 
   /**
@@ -158,13 +179,6 @@ class SimulatorBridge : public scheduler::SchedulingEventNotifierInterface {
   FRIEND_TEST(SimulatorBridgeTest, OnTaskEviction);
   FRIEND_TEST(SimulatorBridgeTest, OnTaskPlacement);
   FRIEND_TEST(SimulatorBridgeTest, RemoveMachine);
-  /**
-   * Add task end event to the simulator event queue.
-   * @param task_identifier the trace identifier of the task
-   * @param td_ptr the descriptor of the task
-   */
-  void AddTaskEndEvent(const TraceTaskIdentifier& task_identifier,
-                       TaskDescriptor* td_ptr);
 
   /**
    * Add task statistics to the knowledge base.
@@ -208,13 +222,13 @@ class SimulatorBridge : public scheduler::SchedulingEventNotifierInterface {
                     uint64_t trace_machine_id,
                     const string& root_uuid,
                     const string& old_machine_res_id);
+
   /**
-   * Computes the new total run time of a task.
-   * NOTE: This method differs from the method with the same name in utils
-   * because it uses simulated_time rather than task_finish_time. This
-   * method should only be used in the simulator.
+   * Helper method that updates TASK_END_RUNTIME events for tasks whose end
+   * time has updated, removes TASK_END_RUNTIME events for preempted tasks, and
+   * adds TASK_END_RUNTIME events for placed tasks.
    */
-  uint64_t UpdateTaskTotalRunTime(const TaskDescriptor& td);
+  void UpdateTaskEndEvents(const vector<TaskEndRuntimes>& tasks_end_time);
 
   EventManager* event_manager_;
   SimulatedWallTime* simulated_time_;
@@ -281,6 +295,8 @@ class SimulatorBridge : public scheduler::SchedulingEventNotifierInterface {
   ResourceTopologyNodeDescriptor machine_tmpl_;
   // Counter used to store the number of duplicate task ids seed in the trace.
   uint64_t num_duplicate_task_ids_;
+  // Object used to get task interference information.
+  TaskInterferenceInterface* task_interference_model_;
   TraceGenerator* trace_generator_;
 };
 

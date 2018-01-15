@@ -1,5 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 #include "sim/simulator_bridge.h"
 
 #include <limits>
@@ -17,6 +35,8 @@
 #include "scheduling/flow/flow_scheduler.h"
 #include "scheduling/simple/simple_scheduler.h"
 #include "sim/dfs/simulated_data_layer_manager.h"
+#include "sim/interference/no_task_interference.h"
+#include "sim/interference/quincy_task_interference.h"
 #include "sim/knowledge_base_simulator.h"
 #include "sim/trace_loader.h"
 #include "storage/simple_object_store.h"
@@ -30,6 +50,7 @@ DECLARE_string(scheduler);
 DECLARE_uint64(sim_machine_max_ram);
 DECLARE_int32(flow_scheduling_cost_model);
 DECLARE_double(trace_speed_up);
+DECLARE_bool(enable_task_interference);
 
 namespace firmament {
 namespace sim {
@@ -84,10 +105,23 @@ SimulatorBridge::SimulatorBridge(EventManager* event_manager,
   // Import a fictional machine resource topology
   LoadMachineTemplate(&machine_tmpl_);
   scheduler_->RegisterResource(&rtn_root_, false, true);
+  if (FLAGS_enable_task_interference) {
+    if (FLAGS_flow_scheduling_cost_model == COST_MODEL_QUINCY) {
+      task_interference_model_ =
+        new QuincyTaskInterference(scheduler_, &machine_res_id_pus_,
+                                   resource_map_, task_map_, &task_runtime_);
+    } else {
+      LOG(FATAL) << "--enable_task_interference set, but cost model doesn't "
+                 << "have interference model";
+    }
+  } else {
+    task_interference_model_ = new NoTaskInterference(&task_runtime_);
+  }
 }
 
 SimulatorBridge::~SimulatorBridge() {
   delete trace_generator_;
+  delete task_interference_model_;
   while (rtn_root_.children_size() > 0) {
     rtn_root_.mutable_children()->RemoveLast();
   }
@@ -229,29 +263,6 @@ bool SimulatorBridge::AddTask(const TraceTaskIdentifier& task_identifier,
   return true;
 }
 
-void SimulatorBridge::AddTaskEndEvent(
-    const TraceTaskIdentifier& task_identifier,
-    TaskDescriptor* td_ptr) {
-  uint64_t* runtime_ptr = FindOrNull(task_runtime_, td_ptr->uid());
-  EventDescriptor event_desc;
-  event_desc.set_job_id(task_identifier.job_id);
-  event_desc.set_task_index(task_identifier.task_index);
-  event_desc.set_type(EventDescriptor::TASK_END_RUNTIME);
-  if (runtime_ptr != NULL) {
-    // We can approximate the duration of the task.
-    event_manager_->AddEvent(simulated_time_->GetCurrentTimestamp() +
-                             *runtime_ptr, event_desc);
-    td_ptr->set_finish_time(simulated_time_->GetCurrentTimestamp() +
-                            *runtime_ptr);
-  } else {
-    // The task didn't finish in the trace. Set the task's end event to the
-    // the timestamp just after the end of the simulation.
-    event_manager_->AddEvent(FLAGS_runtime / FLAGS_trace_speed_up + 1,
-                             event_desc);
-    td_ptr->set_finish_time(FLAGS_runtime / FLAGS_trace_speed_up + 1);
-  }
-}
-
 void SimulatorBridge::AddTaskStats(
     const TraceTaskIdentifier& trace_task_identifier,
     TaskID_t task_id) {
@@ -262,9 +273,12 @@ void SimulatorBridge::AddTaskStats(
                  << trace_task_identifier.task_index << " exist";
     return;
   }
-  // NOTE: We do not add runtime statistics./ Hence, the simulations
-  // work without knowing tasks' runtime before their first run. I believe this
-  // is the correct way to replay the trace.
+  // NOTE: task_stats has a "total_runtime" field that can optionally be set. If
+  // it is set, the simulation will know the accurate runtime of the task ahead
+  // of execution (i.e., it has an oracle). It it us unset (i.e., zero), the
+  // simulation works without knowing tasks' runtime before their first run.
+  // Which of these ways of operating is preferable depends on the simulation
+  // goals, by typically the runtime would be unset.
   knowledge_base_->SetTraceTaskStats(task_id, *task_stats);
   task_id_to_stats_.erase(task_id);
 }
@@ -343,7 +357,7 @@ void SimulatorBridge::LoadTraceData(TraceLoader* trace_loader) {
   // Load tasks' runtime.
   trace_loader->LoadTasksRunningTime(&task_runtime_);
   // Populate the knowledge base.
-  trace_loader->LoadTaskUtilizationStats(&task_id_to_stats_);
+  trace_loader->LoadTaskUtilizationStats(&task_id_to_stats_, task_runtime_);
 }
 
 void SimulatorBridge::ProcessSimulatorEvents(uint64_t events_up_to_time) {
@@ -423,6 +437,10 @@ void SimulatorBridge::OnJobCompletion(JobID_t job_id) {
   job_id_to_trace_job_id_.erase(job_id);
 }
 
+void SimulatorBridge::OnJobRemoval(JobID_t job_id) {
+  // Jobs cannot be removed in simulations.
+}
+
 void SimulatorBridge::OnSchedulingDecisionsCompletion(
     uint64_t scheduler_start_time, uint64_t scheduler_runtime) {
   // We only need to process the simulator events that happened while the
@@ -436,7 +454,13 @@ void SimulatorBridge::OnSchedulingDecisionsCompletion(
 void SimulatorBridge::OnTaskCompletion(TaskDescriptor* td_ptr,
                                        ResourceDescriptor* rd_ptr) {
   TaskID_t task_id = td_ptr->uid();
-  td_ptr->set_total_run_time(UpdateTaskTotalRunTime(*td_ptr));
+  vector<TaskEndRuntimes> tasks_end_time;
+  task_interference_model_->OnTaskCompletion(
+      simulated_time_->GetCurrentTimestamp(),
+      td_ptr,
+      ResourceIDFromString(rd_ptr->uuid()),
+      &tasks_end_time);
+  UpdateTaskEndEvents(tasks_end_time);
   TraceTaskIdentifier* ti_ptr = FindOrNull(task_id_to_identifier_, task_id);
   CHECK_NOTNULL(ti_ptr);
   trace_task_id_to_td_.erase(*ti_ptr);
@@ -455,25 +479,13 @@ void SimulatorBridge::OnTaskCompletion(TaskDescriptor* td_ptr,
 
 void SimulatorBridge::OnTaskEviction(TaskDescriptor* td_ptr,
                                      ResourceDescriptor* rd_ptr) {
-  TaskID_t task_id = td_ptr->uid();
-  TraceTaskIdentifier* ti_ptr =
-    FindOrNull(task_id_to_identifier_, task_id);
-  CHECK_NOTNULL(ti_ptr);
-  uint64_t task_end_time = td_ptr->finish_time();
-  uint64_t task_executed_for =
-    simulated_time_->GetCurrentTimestamp() - td_ptr->start_time();
-  td_ptr->set_total_run_time(UpdateTaskTotalRunTime(*td_ptr));
-  uint64_t* runtime_ptr = FindOrNull(task_runtime_, task_id);
-  if (runtime_ptr != NULL) {
-    // NOTE: We assume that the work conducted by a task until eviction is
-    // saved. Hence, we update the time the task has left to run.
-    InsertOrUpdate(&task_runtime_, task_id, *runtime_ptr - task_executed_for);
-  } else {
-    // The task didn't finish in the trace.
-  }
-  td_ptr->clear_start_time();
-  td_ptr->set_submit_time(simulated_time_->GetCurrentTimestamp());
-  event_manager_->RemoveTaskEndRuntimeEvent(*ti_ptr, task_end_time);
+  vector<TaskEndRuntimes> tasks_end_time;
+  task_interference_model_->OnTaskEviction(
+      simulated_time_->GetCurrentTimestamp(),
+      td_ptr,
+      ResourceIDFromString(rd_ptr->uuid()),
+      &tasks_end_time);
+  UpdateTaskEndEvents(tasks_end_time);
 }
 
 void SimulatorBridge::OnTaskFailure(TaskDescriptor* td_ptr,
@@ -483,21 +495,45 @@ void SimulatorBridge::OnTaskFailure(TaskDescriptor* td_ptr,
 }
 
 void SimulatorBridge::OnTaskMigration(TaskDescriptor* td_ptr,
+                                      ResourceDescriptor* old_rd_ptr,
                                       ResourceDescriptor* rd_ptr) {
-  td_ptr->set_submit_time(simulated_time_->GetCurrentTimestamp());
-  td_ptr->set_start_time(simulated_time_->GetCurrentTimestamp());
-  // We don't have to update the end event because we assume that it
-  // takes no time to migrate a task.
+  vector<TaskEndRuntimes> tasks_end_time;
+  task_interference_model_->OnTaskMigration(
+      simulated_time_->GetCurrentTimestamp(),
+      td_ptr,
+      ResourceIDFromString(old_rd_ptr->uuid()),
+      ResourceIDFromString(rd_ptr->uuid()),
+      &tasks_end_time);
+  UpdateTaskEndEvents(tasks_end_time);
 }
 
 void SimulatorBridge::OnTaskPlacement(TaskDescriptor* td_ptr,
                                       ResourceDescriptor* rd_ptr) {
-  TraceTaskIdentifier* ti_ptr =
-    FindOrNull(task_id_to_identifier_, td_ptr->uid());
+  vector<TaskEndRuntimes> tasks_end_time;
+  TraceTaskIdentifier* ti_ptr = FindOrNull(task_id_to_identifier_, td_ptr->uid());
   CHECK_NOTNULL(ti_ptr);
-  td_ptr->set_start_time(simulated_time_->GetCurrentTimestamp());
-  td_ptr->set_total_unscheduled_time(UpdateTaskTotalUnscheduledTime(*td_ptr));
-  AddTaskEndEvent(*ti_ptr, td_ptr);
+  if (ti_ptr->job_id == 0 && ti_ptr->task_index == 0) {
+    // The task with job_id 0 and task_index 0 is a synthetic task that we
+    // submit to trigger a second round of scheduling after the first one
+    // completes. The purpose of this round is to push flow through the
+    // running arcs to make sure that future runs will not take a long time.
+    // However, we also do not advance the time when scheduler is running for
+    // the first two runs. Thus, this tasks may end up with a start_time
+    // smaller than submit_time. Here, we make sure that's not the case.
+    task_interference_model_->OnTaskPlacement(
+        td_ptr->submit_time(),
+        td_ptr,
+        ResourceIDFromString(rd_ptr->uuid()),
+        &tasks_end_time);
+    UpdateTaskEndEvents(tasks_end_time);
+  } else {
+    task_interference_model_->OnTaskPlacement(
+        simulated_time_->GetCurrentTimestamp(),
+        td_ptr,
+        ResourceIDFromString(rd_ptr->uuid()),
+        &tasks_end_time);
+    UpdateTaskEndEvents(tasks_end_time);
+  }
 }
 
 JobDescriptor* SimulatorBridge::PopulateJob(uint64_t trace_job_id) {
@@ -609,13 +645,26 @@ void SimulatorBridge::ScheduleJobs(SchedulerStats* scheduler_stats) {
   scheduler_->ScheduleAllJobs(scheduler_stats);
 }
 
-uint64_t SimulatorBridge::UpdateTaskTotalRunTime(const TaskDescriptor& td) {
-  uint64_t task_executed_for =
-    simulated_time_->GetCurrentTimestamp() - td.start_time();
-  if (td.total_run_time() > 0) {
-    return td.total_run_time() + task_executed_for;
-  } else {
-    return task_executed_for;
+void SimulatorBridge::UpdateTaskEndEvents(
+    const vector<TaskEndRuntimes>& tasks_end_time) {
+  for (auto& task_end_time : tasks_end_time) {
+    TraceTaskIdentifier* ti_ptr =
+      FindOrNull(task_id_to_identifier_, task_end_time.task_id_);
+    CHECK_NOTNULL(ti_ptr);
+    if (task_end_time.has_previous_end_time()) {
+      // Remove the end event for the running task.
+      event_manager_->RemoveTaskEndRuntimeEvent(
+          *ti_ptr, task_end_time.get_previous_end_time());
+    }
+    if (task_end_time.has_current_end_time()) {
+      // Add new task end event.
+      EventDescriptor event_desc;
+      event_desc.set_job_id(ti_ptr->job_id);
+      event_desc.set_task_index(ti_ptr->task_index);
+      event_desc.set_type(EventDescriptor::TASK_END_RUNTIME);
+      event_manager_->AddEvent(task_end_time.get_current_end_time(),
+                               event_desc);
+    }
   }
 }
 

@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2013 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Implementation of the coordinator knowledge base.
 
 #include "scheduling/knowledge_base.h"
@@ -71,17 +87,14 @@ KnowledgeBase::~KnowledgeBase() {
   // the KnowledgeBase.
 }
 
-void KnowledgeBase::AddMachineSample(
-    const MachinePerfStatisticsSample& sample) {
+void KnowledgeBase::AddMachineSample(const ResourceStats& sample) {
   boost::lock_guard<boost::upgrade_mutex> lock(kb_lock_);
   ResourceID_t rid = ResourceIDFromString(sample.resource_id());
   // Check if we already have a record for this machine
-  deque<MachinePerfStatisticsSample>* q =
-      FindOrNull(machine_map_, rid);
+  deque<ResourceStats>* q = FindOrNull(machine_map_, rid);
   if (!q) {
     // Add a blank queue for this machine
-    CHECK(InsertOrUpdate(&machine_map_, rid,
-                         deque<MachinePerfStatisticsSample>()));
+    CHECK(InsertOrUpdate(&machine_map_, rid, deque<ResourceStats>()));
     q = FindOrNull(machine_map_, rid);
     CHECK_NOTNULL(q);
   }
@@ -97,15 +110,14 @@ void KnowledgeBase::AddMachineSample(
   }
 }
 
-void KnowledgeBase::AddTaskSample(const TaskPerfStatisticsSample& sample) {
+void KnowledgeBase::AddTaskStatsSample(const TaskStats& sample) {
   TaskID_t tid = sample.task_id();
   boost::lock_guard<boost::upgrade_mutex> lock(kb_lock_);
   // Check if we already have a record for this task
-  deque<TaskPerfStatisticsSample>* q = FindOrNull(task_map_, tid);
+  deque<TaskStats>* q = FindOrNull(task_map_, tid);
   if (!q) {
     // Add a blank queue for this task
-    CHECK(InsertOrUpdate(&task_map_, tid,
-                         deque<TaskPerfStatisticsSample>()));
+    CHECK(InsertOrUpdate(&task_map_, tid, deque<TaskStats>()));
     q = FindOrNull(task_map_, tid);
     CHECK_NOTNULL(q);
   }
@@ -122,25 +134,23 @@ void KnowledgeBase::AddTaskSample(const TaskPerfStatisticsSample& sample) {
 
 void KnowledgeBase::DumpMachineStats(const ResourceID_t& res_id) const {
   // Sanity checks
-  const deque<MachinePerfStatisticsSample>* q =
-      FindOrNull(machine_map_, res_id);
+  const deque<ResourceStats>* q = FindOrNull(machine_map_, res_id);
   if (!q)
     return;
   // Dump
   LOG(INFO) << "STATS FOR " << res_id << ": ";
   LOG(INFO) << "Have " << q->size() << " samples.";
-  for (deque<MachinePerfStatisticsSample>::const_iterator it = q->begin();
+  for (deque<ResourceStats>::const_iterator it = q->begin();
       it != q->end();
       ++it) {
-    LOG(INFO) << it->free_ram();
+    LOG(INFO) << it->mem_capacity() * (1.0 - it->mem_utilization());
   }
 }
 
 bool KnowledgeBase::GetLatestStatsForMachine(
-    ResourceID_t id,
-    MachinePerfStatisticsSample* sample) {
+    ResourceID_t id, ResourceStats* sample) {
   boost::lock_guard<boost::upgrade_mutex> lock_shared(kb_lock_);
-  const deque<MachinePerfStatisticsSample>* res = FindOrNull(machine_map_, id);
+  const deque<ResourceStats>* res = FindOrNull(machine_map_, id);
   if (!res)
     return false;
   // We make a copy here, as we lose the lock when returning
@@ -148,22 +158,21 @@ bool KnowledgeBase::GetLatestStatsForMachine(
   return true;
 }
 
-const deque<MachinePerfStatisticsSample> KnowledgeBase::GetStatsForMachine(
+const deque<ResourceStats> KnowledgeBase::GetStatsForMachine(
       ResourceID_t id) {
   boost::lock_guard<boost::upgrade_mutex> lock_shared(kb_lock_);
-  const deque<MachinePerfStatisticsSample>* res = FindOrNull(machine_map_, id);
+  const deque<ResourceStats>* res = FindOrNull(machine_map_, id);
   if (!res) {
-    const deque<MachinePerfStatisticsSample> empty;
+    const deque<ResourceStats> empty;
     return empty;
   }
   // We make a copy here, as we lose the lock when returning
-  const deque<MachinePerfStatisticsSample> copy(*res);
+  const deque<ResourceStats> copy(*res);
   return copy;
 }
 
-const deque<TaskPerfStatisticsSample>* KnowledgeBase::GetStatsForTask(
-      TaskID_t id) const {
-  const deque<TaskPerfStatisticsSample>* res = FindOrNull(task_map_, id);
+const deque<TaskStats>* KnowledgeBase::GetStatsForTask(TaskID_t id) const {
+  const deque<TaskStats>* res = FindOrNull(task_map_, id);
   return res;
 }
 
@@ -240,6 +249,14 @@ double KnowledgeBase::GetAvgRuntimeForTEC(EquivClass_t id) {
   return accumulator / res->size();
 }
 
+uint64_t KnowledgeBase::GetRuntimeForTask(TaskID_t task_id) {
+  boost::lock_guard<boost::upgrade_mutex> lock_shared(kb_lock_);
+  const deque<TaskFinalReport>* rep = GetFinalReportForTask(task_id);
+  CHECK_NOTNULL(rep);
+  CHECK(rep->size() > 0);
+  return rep->front().finish_time() - rep->front().start_time();
+}
+
 void KnowledgeBase::LoadKnowledgeBaseFromFile() {
   // Load the machine samples.
   fstream machine_samples(FLAGS_serial_machine_samples.c_str(),
@@ -263,7 +280,7 @@ void KnowledgeBase::LoadKnowledgeBaseFromFile() {
       LOG(ERROR) << "Unexpected format of the input file";
       break;
     }
-    MachinePerfStatisticsSample machine_stats;
+    ResourceStats machine_stats;
     machine_stats.ParseFromString(message);
     AddMachineSample(machine_stats);
   }
@@ -294,9 +311,9 @@ void KnowledgeBase::LoadKnowledgeBaseFromFile() {
       LOG(ERROR) << "Unexpected format of the input file";
       break;
     }
-    TaskPerfStatisticsSample task_sample;
-    task_sample.ParseFromString(message);
-    AddTaskSample(task_sample);
+    TaskStats task_stats;
+    task_stats.ParseFromString(message);
+    AddTaskStatsSample(task_stats);
   }
   delete coded_task_input;
   delete raw_task_input;

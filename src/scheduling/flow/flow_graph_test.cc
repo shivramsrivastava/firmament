@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2015-2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Tests for flow graph.
 
 #include <gtest/gtest.h>
@@ -46,7 +62,6 @@ class FlowGraphTest : public ::testing::Test {
 
 // Tests arc addition to node.
 TEST_F(FlowGraphTest, AddArcToNode) {
-  shared_ptr<TaskMap_t> task_map = shared_ptr<TaskMap_t>(new TaskMap_t);
   FlowGraph graph;
   uint64_t init_node_count = graph.NumNodes();
   FlowGraphNode* n0 = graph.AddNode();
@@ -59,7 +74,6 @@ TEST_F(FlowGraphTest, AddArcToNode) {
 
 // Change an arc and check it gets added to changes.
 TEST_F(FlowGraphTest, ChangeArc) {
-  shared_ptr<TaskMap_t> task_map = shared_ptr<TaskMap_t>(new TaskMap_t);
   FlowGraph graph;
   FlowGraphNode* n0 = graph.AddNode();
   FlowGraphNode* n1 = graph.AddNode();
@@ -72,13 +86,56 @@ TEST_F(FlowGraphTest, ChangeArc) {
   CHECK_EQ(arc->dst_, n1->id_);
   uint64_t num_arcs = graph.NumArcs();
   // This should delete the arc.
-  graph.ChangeArc(arc, 0, 0, 42);
+  graph.DeleteArc(arc);
   CHECK_EQ(graph.NumArcs(), num_arcs - 1);
+}
+
+// Tests add nodes by passing node pointer to FlowGraphNode instead of node ID.
+TEST_F(FlowGraphTest, AddArcToNode2) {
+  FlowGraph fgraph;
+  FlowGraphNode* node0 = fgraph.AddNode();
+  FlowGraphNode* node1 = fgraph.AddNode();
+  FlowGraphArc* arc = fgraph.AddArc(node0, node1);
+  fgraph.ChangeArc(arc, 0, 100, 42);
+  CHECK_EQ(fgraph.NumArcs(), 1);
+  fgraph.DeleteArc(arc);
+  fgraph.DeleteNode(node0);
+  fgraph.DeleteNode(node1);
+}
+
+// Tests change arc cost.
+TEST_F(FlowGraphTest, ChangeArcCost) {
+  FlowGraph fgraph;
+  FlowGraphNode* node0 = fgraph.AddNode();
+  FlowGraphNode* node1 = fgraph.AddNode();
+  FlowGraphArc* arc = fgraph.AddArc(node0, node1);
+  fgraph.ChangeArc(arc, 0, 100, 42);
+  CHECK_EQ(fgraph.NumArcs(), 1);
+  CHECK_EQ(arc->cost_, 42);
+  fgraph.ChangeArcCost(arc, 44);
+  CHECK_EQ(arc->cost_, 44);
+  fgraph.DeleteArc(arc);
+  fgraph.DeleteNode(node0);
+  fgraph.DeleteNode(node1);
+}
+
+// Tests get arc.
+TEST_F(FlowGraphTest, GetArc) {
+  FlowGraph fgraph;
+  FlowGraphNode* node0 = fgraph.AddNode();
+  FlowGraphNode* node1 = fgraph.AddNode();
+  FlowGraphArc* arc = fgraph.AddArc(node0, node1);
+  FlowGraphArc* get_arc = fgraph.GetArc(node0, node1);
+  CHECK_EQ(get_arc->src_, node0->id_);
+  CHECK_EQ(get_arc->dst_, node1->id_);
+  fgraph.DeleteArc(arc);
+  fgraph.DeleteNode(node0);
+  fgraph.DeleteNode(node1);
 }
 
 }  // namespace firmament
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

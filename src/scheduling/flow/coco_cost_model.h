@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Coordinated co-location scheduling cost model.
 
 #ifndef FIRMAMENT_SCHEDULING_COCO_COST_MODEL_H
@@ -50,25 +66,22 @@ class CocoCostModel : public CostModelInterface {
   const string DebugInfo() const;
   const string DebugInfoCSV() const;
   // Costs pertaining to leaving tasks unscheduled
-  Cost_t TaskToUnscheduledAggCost(TaskID_t task_id);
-  Cost_t UnscheduledAggToSinkCost(JobID_t job_id);
+  ArcDescriptor TaskToUnscheduledAgg(TaskID_t task_id);
+  ArcDescriptor UnscheduledAggToSink(JobID_t job_id);
   // Per-task costs (into the resource topology)
-  Cost_t TaskToResourceNodeCost(TaskID_t task_id,
-                                ResourceID_t resource_id);
+  ArcDescriptor TaskToResourceNode(TaskID_t task_id, ResourceID_t resource_id);
   // Costs within the resource topology
-  Cost_t ResourceNodeToResourceNodeCost(const ResourceDescriptor& source,
-                                        const ResourceDescriptor& destination);
-  Cost_t LeafResourceNodeToSinkCost(ResourceID_t resource_id);
+  ArcDescriptor ResourceNodeToResourceNode(
+      const ResourceDescriptor& source,
+      const ResourceDescriptor& destination);
+  ArcDescriptor LeafResourceNodeToSink(ResourceID_t resource_id);
   // Costs pertaining to preemption (i.e. already running tasks)
-  Cost_t TaskContinuationCost(TaskID_t task_id);
-  Cost_t TaskPreemptionCost(TaskID_t task_id);
+  ArcDescriptor TaskContinuation(TaskID_t task_id);
+  ArcDescriptor TaskPreemption(TaskID_t task_id);
   // Costs to equivalence class aggregators
-  Cost_t TaskToEquivClassAggregator(TaskID_t task_id, EquivClass_t tec);
-  pair<Cost_t, uint64_t> EquivClassToResourceNode(
-      EquivClass_t tec,
-      ResourceID_t res_id);
-  pair<Cost_t, uint64_t> EquivClassToEquivClass(EquivClass_t tec1,
-                                                EquivClass_t tec2);
+  ArcDescriptor TaskToEquivClassAggregator(TaskID_t task_id, EquivClass_t tec);
+  ArcDescriptor EquivClassToResourceNode(EquivClass_t tec, ResourceID_t res_id);
+  ArcDescriptor EquivClassToEquivClass(EquivClass_t tec1, EquivClass_t tec2);
   // Get the type of equiv class.
   vector<EquivClass_t>* GetTaskEquivClasses(TaskID_t task_id);
   vector<ResourceID_t>* GetOutgoingEquivClassPrefArcs(EquivClass_t tec);
@@ -76,7 +89,6 @@ class CocoCostModel : public CostModelInterface {
   vector<EquivClass_t>* GetEquivClassToEquivClassesArcs(EquivClass_t tec);
   void AddMachine(ResourceTopologyNodeDescriptor* rtnd_ptr);
   void AddTask(TaskID_t task_id);
-  void PrintCostVector(CostVector_t cv);
   void RemoveMachine(ResourceID_t res_id);
   void RemoveTask(TaskID_t task_id);
   FlowGraphNode* GatherStats(FlowGraphNode* accumulator, FlowGraphNode* other);
@@ -87,7 +99,6 @@ class CocoCostModel : public CostModelInterface {
   // Fixed value for OMEGA, the normalization ceiling for each dimension's cost
   // value
   const Cost_t omega_ = 1000;
-  const Cost_t WAIT_TIME_MULTIPLIER = 1;
   const int64_t MAX_PRIORITY_VALUE = 10LL;
 
   // Resource vector comparison type and enum
@@ -128,6 +139,7 @@ class CocoCostModel : public CostModelInterface {
   ResourceID_t MachineResIDForResource(ResourceID_t res_id);
   // Bring cost into the range (0, omega_)
   Cost_t NormalizeCost(double raw_cost, double max_cost);
+  void PrintCostVector(CostVector_t cv);
   // Get a delimited string representing a resource vector
   string ResourceVectorToString(const ResourceVector& rv,
                                 const string& delimiter) const;

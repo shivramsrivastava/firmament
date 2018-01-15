@@ -1,7 +1,7 @@
 from base import job_desc_pb2
 from base import task_desc_pb2
 from base import reference_desc_pb2
-from google.protobuf import text_format
+from google.protobuf import json_format
 import httplib, urllib, re, sys, random
 import binascii
 import time
@@ -28,7 +28,7 @@ job_desc.root_task.state = task_desc_pb2.TaskDescriptor.CREATED
 job_desc.root_task.binary = sys.argv[3]
 job_desc.root_task.priority = 5
 job_desc.root_task.resource_request.cpu_cores = 0.1
-job_desc.root_task.resource_request.ram_cap = 128
+job_desc.root_task.resource_request.ram_cap = 131072
 job_desc.root_task.resource_request.net_tx_bw = 0
 job_desc.root_task.resource_request.net_rx_bw = 0
 job_desc.root_task.resource_request.disk_bw = 0
@@ -63,11 +63,10 @@ final_output2_desc.type = reference_desc_pb2.ReferenceDescriptor.FUTURE
 final_output2_desc.non_deterministic = True
 final_output2_desc.location = "blob:/tmp/out2"
 
-
-#params = urllib.urlencode({'test': text_format.MessageToString(job_desc)})
-params = 'test=%s' % text_format.MessageToString(job_desc)
+jd_as_json = json_format.MessageToJson(job_desc)
+params = urllib.urlencode({'jd': jd_as_json })
 print "SUBMITTING job with parameters:"
-print params
+print jd_as_json
 print ""
 
 try:

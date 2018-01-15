@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // General abstract superclass for event-driven schedulers. This contains shared
 // implementation, e.g. task binding and remote delegation mechanisms.
 
@@ -212,6 +229,17 @@ void EventDrivenScheduler::HandleJobCompletion(JobID_t job_id) {
   }
 }
 
+void EventDrivenScheduler::HandleJobRemoval(JobID_t job_id) {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
+  JobDescriptor* jd = FindOrNull(*job_map_, job_id);
+  CHECK_NOTNULL(jd);
+  jobs_to_schedule_.erase(job_id);
+  runnable_tasks_.erase(job_id);
+  if (event_notifier_) {
+    event_notifier_->OnJobRemoval(job_id);
+  }
+}
+
 void EventDrivenScheduler::HandleReferenceStateChange(
     const ReferenceInterface& old_ref,
     const ReferenceInterface& new_ref,
@@ -263,20 +291,31 @@ void EventDrivenScheduler::HandleTaskCompletion(TaskDescriptor* td_ptr,
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   // Find resource for task
   ResourceID_t* res_id_ptr = BoundResourceForTask(td_ptr->uid());
-  CHECK_NOTNULL(res_id_ptr);
-  // This copy is necessary because UnbindTaskFromResource ends up deleting the
-  // ResourceID_t pointed to by res_id_ptr
-  ResourceID_t res_id_tmp = *res_id_ptr;
-  ResourceStatus* rs_ptr = FindPtrOrNull(*resource_map_, res_id_tmp);
-  CHECK_NOTNULL(rs_ptr);
-  VLOG(1) << "Handling completion of task " << td_ptr->uid()
-          << ", freeing resource " << res_id_tmp;
-  CHECK(UnbindTaskFromResource(td_ptr, res_id_tmp));
-  // Record final report
-  ExecutorInterface* exec = FindPtrOrNull(executors_, res_id_tmp);
+  ResourceStatus* rs_ptr = NULL;
+  if (res_id_ptr) {
+    // This copy is necessary because UnbindTaskFromResource ends up deleting
+    // the ResourceID_t pointed to by res_id_ptr
+    ResourceID_t res_id_tmp = *res_id_ptr;
+    rs_ptr = FindPtrOrNull(*resource_map_, res_id_tmp);
+    CHECK_NOTNULL(rs_ptr);
+    VLOG(1) << "Handling completion of task " << td_ptr->uid()
+            << ", freeing resource " << res_id_tmp;
+    CHECK(UnbindTaskFromResource(td_ptr, res_id_tmp));
+    // Record final report
+    ExecutorInterface* exec = FindPtrOrNull(executors_, res_id_tmp);
+    CHECK_NOTNULL(exec);
+    exec->HandleTaskCompletion(td_ptr, report);
+  } else {
+    // The task does not have a bound resource. It can happen when a machine
+    // temporarly fails. As a result of the failure, we mark the task as failed
+    // and unbind it from the machine's resource. However, upon machine recovery
+    // we can receive a task completion notification.
+    VLOG(1) << "Handling completion of task " << td_ptr->uid();
+    ResourceID_t res_id = ResourceIDFromString(td_ptr->scheduled_to_resource());
+    rs_ptr = FindPtrOrNull(*resource_map_, res_id);
+    CHECK_NOTNULL(rs_ptr);
+  }
   td_ptr->set_state(TaskDescriptor::COMPLETED);
-  CHECK_NOTNULL(exec);
-  exec->HandleTaskCompletion(td_ptr, report);
   // Store the final report in the TD for future reference
   td_ptr->mutable_final_report()->CopyFrom(*report);
   trace_generator_->TaskCompleted(td_ptr->uid(), rs_ptr->descriptor());
@@ -403,7 +442,7 @@ void EventDrivenScheduler::HandleTaskMigration(TaskDescriptor* td_ptr,
   BindTaskToResource(td_ptr, rd_ptr);
   trace_generator_->TaskMigrated(td_ptr, *old_rd, *rd_ptr);
   if (event_notifier_) {
-    event_notifier_->OnTaskMigration(td_ptr, rd_ptr);
+    event_notifier_->OnTaskMigration(td_ptr, old_rd, rd_ptr);
   }
 }
 
@@ -427,6 +466,17 @@ void EventDrivenScheduler::HandleTaskPlacement(
   if (event_notifier_) {
     event_notifier_->OnTaskPlacement(td_ptr, rd_ptr);
   }
+}
+
+void EventDrivenScheduler::HandleTaskRemoval(TaskDescriptor* td_ptr) {
+  bool was_running = false;
+  if (td_ptr->state() == TaskDescriptor::RUNNING) {
+    was_running = true;
+    KillRunningTask(td_ptr->uid(), TaskKillMessage::USER_ABORT);
+  } else {
+    td_ptr->set_state(TaskDescriptor::ABORTED);
+  }
+  trace_generator_->TaskRemoved(td_ptr->uid(), was_running);
 }
 
 void EventDrivenScheduler::KillRunningTask(
@@ -457,6 +507,9 @@ void EventDrivenScheduler::KillRunningTask(
             << *rid << " (endpoint: " << td_ptr->last_heartbeat_location()
             << ")";
   m_adapter_ptr_->SendMessageToEndpoint(td_ptr->last_heartbeat_location(), bm);
+  if (!rid) {
+    CHECK(UnbindTaskFromResource(td_ptr, *rid));
+  }
   trace_generator_->TaskKilled(task_id, rs_ptr->descriptor());
 }
 

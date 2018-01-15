@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // The task library class is part of libfirmament, the library that gets linked
 // into task binaries. Eventually, we should make this an interface, and support
 // platform-specific classes.
@@ -17,9 +34,8 @@
 #include "base/common.h"
 #include "base/types.h"
 #include "base/resource_desc.pb.h"
-#include "base/task_perf_statistics_sample.pb.h"
-#include "storage/reference_types.h"
 #include "base/task_interface.h"
+#include "base/task_stats.pb.h"
 #include "messages/base_message.pb.h"
 #include "misc/messaging_interface.h"
 #include "misc/protobuf_envelope.h"
@@ -28,6 +44,7 @@
 #include "platforms/unix/procfs_monitor.h"
 #include "platforms/unix/stream_sockets_adapter.h"
 #include "platforms/unix/stream_sockets_channel.h"
+#include "storage/reference_types.h"
 #include "storage/types.h"
 
 namespace firmament {
@@ -74,8 +91,7 @@ class TaskLib {
   TaskDescriptor task_descriptor_;
 
   void AddTaskStatisticsToHeartbeat(
-      const ProcFSMonitor::ProcessStatistics_t& proc_stats,
-      TaskPerfStatisticsSample* stats);
+      const ProcFSMonitor::ProcessStatistics_t& proc_stats, TaskStats* stats);
   void ConvertTaskArgs(int argc, char *argv[], vector<char*>* arg_vec);
   void HandleIncomingMessage(BaseMessage *bm,
                              const string& remote_endpoint);

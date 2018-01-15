@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2012-2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2012-2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Quincy scheduler.
 
 #ifndef FIRMAMENT_SCHEDULING_FLOW_FLOW_SCHEDULER_H
@@ -53,6 +69,7 @@ class FlowScheduler : public EventDrivenScheduler {
   ~FlowScheduler();
   virtual void DeregisterResource(ResourceTopologyNodeDescriptor* rtnd_ptr);
   virtual void HandleJobCompletion(JobID_t job_id);
+  virtual void HandleJobRemoval(JobID_t job_id);
   virtual void HandleTaskCompletion(TaskDescriptor* td_ptr,
                                     TaskFinalReport* report);
   virtual void HandleTaskEviction(TaskDescriptor* td_ptr,
@@ -60,6 +77,7 @@ class FlowScheduler : public EventDrivenScheduler {
   virtual void HandleTaskFailure(TaskDescriptor* td_ptr);
   virtual void HandleTaskFinalReport(const TaskFinalReport& report,
                                      TaskDescriptor* td_ptr);
+  virtual void HandleTaskRemoval(TaskDescriptor* td_ptr);
   virtual void KillRunningTask(TaskID_t task_id,
                                TaskKillMessage::TaskKillReason reason);
   virtual void PopulateSchedulerResourceUI(ResourceID_t res_id,
@@ -97,7 +115,8 @@ class FlowScheduler : public EventDrivenScheduler {
 
  private:
   uint64_t ApplySchedulingDeltas(const vector<SchedulingDelta*>& deltas);
-  void EvictTasksFromResource(ResourceTopologyNodeDescriptor* rtnd_ptr);
+  void HandleTasksFromDeregisteredResource(
+      ResourceTopologyNodeDescriptor* rtnd_ptr);
   void LogDebugCostModel();
   TaskDescriptor* ProducingTaskForDataObjectID(DataObjectID_t id);
   void RegisterLocalResource(ResourceID_t res_id);

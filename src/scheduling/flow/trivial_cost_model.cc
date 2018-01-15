@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Trivial scheduling cost model for testing purposes.
 
 #include "scheduling/flow/trivial_cost_model.h"
@@ -10,6 +27,7 @@
 
 #include "misc/map-util.h"
 #include "misc/utils.h"
+#include "scheduling/flow/cost_model_utils.h"
 
 DECLARE_bool(preemption);
 DECLARE_uint64(max_tasks_per_pu);
@@ -29,59 +47,60 @@ TrivialCostModel::TrivialCostModel(
   VLOG(1) << "Cluster aggregator EC is " << cluster_aggregator_ec_;
 }
 
-Cost_t TrivialCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
-  return 5LL;
+ArcDescriptor TrivialCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
+  return ArcDescriptor(5LL, 1ULL, 0ULL);
 }
 
-Cost_t TrivialCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0LL;
+ArcDescriptor TrivialCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t TrivialCostModel::TaskToResourceNodeCost(TaskID_t task_id,
-                                                ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor TrivialCostModel::TaskToResourceNode(TaskID_t task_id,
+                                                   ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t TrivialCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor TrivialCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
-  return 0LL;
+  return ArcDescriptor(0LL, CapacityFromResNodeToParent(destination), 0ULL);
 }
 
-Cost_t TrivialCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor TrivialCostModel::LeafResourceNodeToSink(
+    ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t TrivialCostModel::TaskContinuationCost(TaskID_t task_id) {
-  return 0ULL;
+ArcDescriptor TrivialCostModel::TaskContinuation(TaskID_t task_id) {
+  return ArcDescriptor(0ULL, 1ULL, 0ULL);
 }
 
-Cost_t TrivialCostModel::TaskPreemptionCost(TaskID_t task_id) {
-  return 0ULL;
+ArcDescriptor TrivialCostModel::TaskPreemption(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t TrivialCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                    EquivClass_t ec) {
+ArcDescriptor TrivialCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                           EquivClass_t ec) {
   if (ec == cluster_aggregator_ec_)
-    return 2ULL;
+    return ArcDescriptor(2LL, 1ULL, 0ULL);
   else
-    return 0ULL;
+    return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> TrivialCostModel::EquivClassToResourceNode(
+ArcDescriptor TrivialCostModel::EquivClassToResourceNode(
     EquivClass_t tec,
     ResourceID_t res_id) {
   ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
   CHECK_NOTNULL(rs);
   uint64_t num_free_slots = rs->descriptor().num_slots_below() -
     rs->descriptor().num_running_tasks_below();
-  return pair<Cost_t, uint64_t>(0LL, num_free_slots);
+  return ArcDescriptor(0LL, num_free_slots, 0ULL);
 }
 
-pair<Cost_t, uint64_t> TrivialCostModel::EquivClassToEquivClass(
+ArcDescriptor TrivialCostModel::EquivClassToEquivClass(
     EquivClass_t tec1,
     EquivClass_t tec2) {
-  return pair<Cost_t, uint64_t>(0LL, 0ULL);
+  return ArcDescriptor(0LL, 0ULL, 0ULL);
 }
 
 vector<EquivClass_t>* TrivialCostModel::GetTaskEquivClasses(

@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+ /*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Co-ordinated co-location cost model.
 
 #include "scheduling/flow/coco_cost_model.h"
@@ -20,7 +37,37 @@
 #include "misc/map-util.h"
 #include "scheduling/knowledge_base.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/flow/cost_model_utils.h"
 #include "scheduling/flow/flow_graph_manager.h"
+
+DEFINE_int64(coco_wait_time_multiplier, 1,
+             "CoCo wait time multiplier factor");
+DEFINE_int64(penalty_turtle_any, 50,
+             "Turtle penalty when co-located with others");
+DEFINE_int64(penalty_sheep_turtle, 10,
+             "Sheep penalty when co-located with turtle");
+DEFINE_int64(penalty_sheep_sheep, 50,
+             "Sheep penalty when co-located with sheep");
+DEFINE_int64(penalty_sheep_rabbit, 100,
+             "Sheep penalty when co-located with rabbit");
+DEFINE_int64(penalty_sheep_devil, 200,
+             "Sheep penalty when co-located with devil");
+DEFINE_int64(penalty_rabbit_turtle, 10,
+             "Rabbit penalty when co-located with turtle");
+DEFINE_int64(penalty_rabbit_sheep, 50,
+             "Rabbit penalty when co-located with sheep");
+DEFINE_int64(penalty_rabbit_rabbit, 200,
+             "Rabbit penalty when co-located with rabbit");
+DEFINE_int64(penalty_rabbit_devil, 1000,
+             "Rabbit penalty when co-located with devil");
+DEFINE_int64(penalty_devil_turtle, 10,
+             "Devil penalty when co-located with turtle");
+DEFINE_int64(penalty_devil_sheep, 200,
+             "Devil penalty when co-located with sheep");
+DEFINE_int64(penalty_devil_rabbit, 1000,
+             "Devil penalty when co-located with rabbit");
+DEFINE_int64(penalty_devil_devil, 200,
+             "Devil penalty when co-located with devil");
 
 DECLARE_bool(preemption);
 DECLARE_uint64(max_tasks_per_pu);
@@ -57,15 +104,10 @@ void CocoCostModel::AccumulateResourceStats(ResourceDescriptor* accumulator,
   // CPU core capacity is additive, while all other properties are machine-level
   // properties that only get added once we get beyond the machine level.
   acc_avail->set_cpu_cores(acc_avail->cpu_cores() + other_avail->cpu_cores());
-  // XXX(malte): the current version of the CoCo model does not support
-  // aggregators above the machine level (e.g., rack aggregators), so this does
-  // not consider the additive case for RAM/net/disk resources yet.
-  acc_avail->set_ram_cap(max(acc_avail->ram_cap(), other_avail->ram_cap()));
-  acc_avail->set_net_tx_bw(max(acc_avail->net_tx_bw(),
-                               other_avail->net_tx_bw()));
-  acc_avail->set_net_rx_bw(max(acc_avail->net_rx_bw(),
-                               other_avail->net_rx_bw()));
-  acc_avail->set_disk_bw(max(acc_avail->disk_bw(), other_avail->disk_bw()));
+  acc_avail->set_ram_cap(acc_avail->ram_cap() + other_avail->ram_cap());
+  acc_avail->set_net_tx_bw(acc_avail->net_tx_bw() + other_avail->net_tx_bw());
+  acc_avail->set_net_rx_bw(acc_avail->net_rx_bw() + other_avail->net_rx_bw());
+  acc_avail->set_disk_bw(acc_avail->disk_bw() + other_avail->disk_bw());
   // Track the maximum resources available in any dimensions at resources below
   // the accumulator node
   ResourceVector* acc_max =
@@ -332,47 +374,47 @@ void CocoCostModel::GetInterferenceScoreForTask(
     // Turtles don't care about devils, or indeed anything else
     // TOTAL: 20
     interference_vector->set_turtle_penalty(
-        interference_vector->turtle_penalty() + 50);
+        interference_vector->turtle_penalty() + FLAGS_penalty_turtle_any);
     interference_vector->set_sheep_penalty(
-        interference_vector->sheep_penalty() + 50);
+        interference_vector->sheep_penalty() + FLAGS_penalty_turtle_any);
     interference_vector->set_rabbit_penalty(
-        interference_vector->rabbit_penalty() + 50);
+        interference_vector->rabbit_penalty() + FLAGS_penalty_turtle_any);
     interference_vector->set_devil_penalty(
-        interference_vector->devil_penalty() + 50);
+        interference_vector->devil_penalty() + FLAGS_penalty_turtle_any);
   } else if (td.task_type() == TaskDescriptor::SHEEP) {
     // Sheep love turtles and rabbits, but dislike devils
     // TOTAL: 36
     interference_vector->set_turtle_penalty(
-        interference_vector->turtle_penalty() + 10);
+        interference_vector->turtle_penalty() + FLAGS_penalty_sheep_turtle);
     interference_vector->set_sheep_penalty(
-        interference_vector->sheep_penalty() + 50);
+        interference_vector->sheep_penalty() + FLAGS_penalty_sheep_sheep);
     interference_vector->set_rabbit_penalty(
-        interference_vector->rabbit_penalty() + 100);
+        interference_vector->rabbit_penalty() + FLAGS_penalty_sheep_rabbit);
     interference_vector->set_devil_penalty(
-        interference_vector->devil_penalty() + 200);
+        interference_vector->devil_penalty() + FLAGS_penalty_sheep_devil);
   } else if (td.task_type() == TaskDescriptor::RABBIT) {
     // Rabbits love turtles and sheep, but hate devils and dislike other
     // rabbits
     // TOTAL: 126
     interference_vector->set_turtle_penalty(
-        interference_vector->turtle_penalty() + 10);
+        interference_vector->turtle_penalty() + FLAGS_penalty_rabbit_turtle);
     interference_vector->set_sheep_penalty(
-        interference_vector->sheep_penalty() + 50);
+        interference_vector->sheep_penalty() + FLAGS_penalty_rabbit_sheep);
     interference_vector->set_rabbit_penalty(
-        interference_vector->rabbit_penalty() + 200);
+        interference_vector->rabbit_penalty() + FLAGS_penalty_rabbit_rabbit);
     interference_vector->set_devil_penalty(
-        interference_vector->devil_penalty() + 1000);
+        interference_vector->devil_penalty() + FLAGS_penalty_rabbit_devil);
   } else if (td.task_type() == TaskDescriptor::DEVIL) {
     // Devils like turtles, hate rabbits, dislike sheep and other devils
     // TOTAL: 140
     interference_vector->set_turtle_penalty(
-        interference_vector->turtle_penalty() + 10);
+        interference_vector->turtle_penalty() + FLAGS_penalty_devil_turtle);
     interference_vector->set_sheep_penalty(
-        interference_vector->sheep_penalty() + 200);
+        interference_vector->sheep_penalty() + FLAGS_penalty_devil_sheep);
     interference_vector->set_rabbit_penalty(
-        interference_vector->rabbit_penalty() + 1000);
+        interference_vector->rabbit_penalty() + FLAGS_penalty_devil_rabbit);
     interference_vector->set_devil_penalty(
-        interference_vector->devil_penalty() + 200);
+        interference_vector->devil_penalty() + FLAGS_penalty_devil_devil);
   }
 }
 
@@ -401,7 +443,7 @@ vector<ResourceID_t>* CocoCostModel::GetOutgoingEquivClassPrefArcs(
   // TODO(ionel): This method may end up adding many preference arcs.
   // Limit the number of preference arcs it adds.
   vector<ResourceID_t>* prefered_res = new vector<ResourceID_t>();
-  if (task_aggs_.find(ec) != task_aggs_.end()) {
+  if (ContainsKey(task_aggs_, ec)) {
     ResourceStatus* root_rs =
       FindPtrOrNull(*resource_map_,
                     ResourceIDFromString(
@@ -484,7 +526,7 @@ vector<EquivClass_t>* CocoCostModel::GetEquivClassToEquivClassesArcs(
 
 // The cost of leaving a task unscheduled should be higher than the cost of
 // scheduling it.
-Cost_t CocoCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
+ArcDescriptor CocoCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
   const TaskDescriptor& td = GetTask(task_id);
   // Baseline value (based on resource request)
   CostVector_t cost_vector;
@@ -512,7 +554,8 @@ Cost_t CocoCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
     time_manager_->GetCurrentTimestamp() - td.submit_time();
   // timestamps are in microseconds, but we scale to tenths of a second here in
   // order to keep the costs small
-  int64_t wait_time_cost = WAIT_TIME_MULTIPLIER * (time_since_submit / 100000);
+  int64_t wait_time_cost = FLAGS_coco_wait_time_multiplier *
+    (time_since_submit / 100000);
   if (VLOG_IS_ON(2)) {
     VLOG(2) << "Task " << task_id << "'s cost to unscheduled aggregator:";
     VLOG(2) << "  Baseline vector: ";
@@ -521,15 +564,15 @@ Cost_t CocoCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
     VLOG(2) << "  Wait time component: " << wait_time_cost;
     VLOG(2) << "  TOTAL: " << (wait_time_cost + base_cost);
   }
-  return (wait_time_cost + base_cost);
+  return ArcDescriptor(wait_time_cost + base_cost, 1ULL, 0ULL);
 }
 
 // The cost from the unscheduled to the sink is 0. Setting it to a value greater
 // than zero affects all the unscheduled tasks. It is better to affect the cost
 // of not running a task through the cost from the task to the unscheduled
 // aggregator.
-Cost_t CocoCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0LL;
+ArcDescriptor CocoCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
 // The cost from the task to the cluster aggregator models how expensive is a
@@ -540,15 +583,15 @@ Cost_t CocoCostModel::TaskToClusterAggCost(TaskID_t task_id) {
   return infinity_;
 }
 
-Cost_t CocoCostModel::TaskToResourceNodeCost(TaskID_t task_id,
-                                             ResourceID_t resource_id) {
+ArcDescriptor CocoCostModel::TaskToResourceNode(TaskID_t task_id,
+                                                ResourceID_t resource_id) {
   // Not used in CoCo, as we don't have direct arcs from tasks to resources;
   // we only connect via TECs.
   LOG(ERROR) << "Arcs from tasks to resource nodes should not be present";
-  return 0LL;
+  return ArcDescriptor(0LL, 0ULL, 0ULL);
 }
 
-Cost_t CocoCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor CocoCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
   // Get the RD for the machine corresponding to this resource
@@ -563,7 +606,9 @@ Cost_t CocoCostModel::ResourceNodeToResourceNodeCost(
   cost_vector.priority_ = 0;
   if (destination.type() == ResourceDescriptor::RESOURCE_PU) {
     cost_vector.cpu_cores_ =
-        NormalizeCost(1.0 - destination.available_resources().cpu_cores(), 1.0);
+        NormalizeCost(machine_rd.resource_capacity().cpu_cores() -
+                      destination.available_resources().cpu_cores(),
+                      machine_rd.resource_capacity().cpu_cores());
   } else if (destination.type() == ResourceDescriptor::RESOURCE_MACHINE) {
     cost_vector.ram_cap_ =
         NormalizeCost(machine_rd.resource_capacity().ram_cap() -
@@ -599,32 +644,33 @@ Cost_t CocoCostModel::ResourceNodeToResourceNodeCost(
     VLOG(2) << "  Flattened: " << flat_cost;
   }
   // Return the flattened vector
-  return flat_cost;
+  return ArcDescriptor(flat_cost, CapacityFromResNodeToParent(destination),
+                       0ULL);
 }
 
 // The cost from the resource leaf to the sink is 0.
-Cost_t CocoCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor CocoCostModel::LeafResourceNodeToSink(ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t CocoCostModel::TaskContinuationCost(TaskID_t task_id) {
+ArcDescriptor CocoCostModel::TaskContinuation(TaskID_t task_id) {
   // TODO(malte): Implement!
-  return 0LL;
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t CocoCostModel::TaskPreemptionCost(TaskID_t task_id) {
+ArcDescriptor CocoCostModel::TaskPreemption(TaskID_t task_id) {
   // TODO(malte): Implement!
-  return 0LL;
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t CocoCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                 EquivClass_t tec) {
+ArcDescriptor CocoCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                        EquivClass_t tec) {
   // Set cost from task to TA proportional to its resource requirements
   const TaskDescriptor& td = GetTask(task_id);
   if (!td.has_resource_request()) {
     LOG(ERROR) << "Task " << task_id << " does not have a resource "
                << "specification!";
-    return 0LL;
+    return ArcDescriptor(0LL, 0ULL, 0ULL);
   }
   // Compute resource request dimensions (normalized by largest machine)
   CostVector_t cost_vector;
@@ -648,10 +694,10 @@ Cost_t CocoCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
     VLOG(2) << "  Flattened: " << FlattenCostVector(cost_vector);
   }
   // Return the flattened vector
-  return FlattenCostVector(cost_vector);
+  return ArcDescriptor(FlattenCostVector(cost_vector), 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> CocoCostModel::EquivClassToResourceNode(
+ArcDescriptor CocoCostModel::EquivClassToResourceNode(
     EquivClass_t ec,
     ResourceID_t res_id) {
   if (ContainsKey(task_aggs_, ec)) {
@@ -687,20 +733,20 @@ pair<Cost_t, uint64_t> CocoCostModel::EquivClassToResourceNode(
     }
     VLOG(2) << num_tasks_that_fit << " tasks of TEC " << ec << " fit under "
             << res_id << ", at interference score of " << score;
-    return pair<Cost_t, uint64_t>(score, num_tasks_that_fit);
+    return ArcDescriptor(score, num_tasks_that_fit, 0ULL);
   } else {
     LOG(WARNING) << "Unknown EC " << ec << " is not a TEC, so returning "
                  << "zero cost!";
     // No cost; no capacity
-    return pair<Cost_t, uint64_t>(0LL, 0ULL);
+    return ArcDescriptor(0LL, 0ULL, 0ULL);
   }
 }
 
-pair<Cost_t, uint64_t> CocoCostModel::EquivClassToEquivClass(
+ArcDescriptor CocoCostModel::EquivClassToEquivClass(
     EquivClass_t tec1,
     EquivClass_t tec2) {
   LOG(ERROR) << "Arcs from equiv class to equiv class should not be present";
-  return pair<Cost_t, uint64_t>(0LL, 0ULL);
+  return ArcDescriptor(0LL, 0ULL, 0ULL);
 }
 
 ResourceID_t CocoCostModel::MachineResIDForResource(ResourceID_t res_id) {
@@ -849,7 +895,7 @@ FlowGraphNode* CocoCostModel::GatherStats(FlowGraphNode* accumulator,
     CHECK_NOTNULL(machine_rs_ptr);
     ResourceDescriptor* machine_rd_ptr = machine_rs_ptr->mutable_descriptor();*/
     // Grab the latest available resource sample from the machine
-    MachinePerfStatisticsSample latest_stats;
+    ResourceStats latest_stats;
     // Take the most recent sample for now
     bool have_sample =
       knowledge_base_->GetLatestStatsForMachine(machine_res_id, &latest_stats);
@@ -862,24 +908,27 @@ FlowGraphNode* CocoCostModel::GatherStats(FlowGraphNode* accumulator,
       if (idx != string::npos) {
         string core_id_substr = label.substr(idx + 4, label.size() - idx - 4);
         uint32_t core_id = strtoul(core_id_substr.c_str(), 0, 10);
+        float available_cpu_cores =
+          latest_stats.cpus_stats(core_id).cpu_capacity() *
+          (1.0 - latest_stats.cpus_stats(core_id).cpu_utilization());
         rd_ptr->mutable_available_resources()->set_cpu_cores(
-            static_cast<double>(latest_stats.cpus_usage(core_id).idle()) /
-            100.0);
+            available_cpu_cores);
         rd_ptr->mutable_max_available_resources_below()->set_cpu_cores(
-            latest_stats.cpus_usage(core_id).idle() / 100.0);
+            available_cpu_cores);
         rd_ptr->mutable_min_available_resources_below()->set_cpu_cores(
-            latest_stats.cpus_usage(core_id).idle() / 100.0);
+            available_cpu_cores);
       }
       // The CPU utilization gets added up automaticaly, so we only set the
       // per-machine properties here
       rd_ptr->mutable_available_resources()->set_ram_cap(
-          (latest_stats.free_ram() / BYTES_TO_MB));
+          latest_stats.mem_capacity() * (1.0 - latest_stats.mem_utilization()));
       rd_ptr->mutable_max_available_resources_below()->set_ram_cap(
-          (latest_stats.free_ram() / BYTES_TO_MB));
+          latest_stats.mem_capacity() * (1.0 - latest_stats.mem_utilization()));
       rd_ptr->mutable_min_available_resources_below()->set_ram_cap(
-          (latest_stats.free_ram() / BYTES_TO_MB));
+          latest_stats.mem_capacity() * (1.0 - latest_stats.mem_utilization()));
       // Running/idle task count
       rd_ptr->set_num_running_tasks_below(rd_ptr->current_running_tasks_size());
+      rd_ptr->set_num_slots_below(FLAGS_max_tasks_per_pu);
       // Interference score vectors and resource reservations are accumulated if
       // we have a running task here.
       RepeatedField<uint64_t> running_tasks = rd_ptr->current_running_tasks();
@@ -905,7 +954,7 @@ FlowGraphNode* CocoCostModel::GatherStats(FlowGraphNode* accumulator,
     return accumulator;
   } else if (accumulator->type_ == FlowNodeType::MACHINE) {
     // Grab the latest available resource sample from the machine
-    MachinePerfStatisticsSample latest_stats;
+    ResourceStats latest_stats;
     // Take the most recent sample for now
     bool have_sample =
       knowledge_base_->GetLatestStatsForMachine(accumulator->resource_id_,
@@ -915,31 +964,31 @@ FlowGraphNode* CocoCostModel::GatherStats(FlowGraphNode* accumulator,
               << "resource stats!";
       rd_ptr->mutable_available_resources()->set_disk_bw(
           rd_ptr->resource_capacity().disk_bw() -
-          (latest_stats.disk_bw() / BYTES_TO_MB));
+          latest_stats.disk_bw());
       rd_ptr->mutable_max_available_resources_below()->set_disk_bw(
           rd_ptr->resource_capacity().disk_bw() -
-          (latest_stats.disk_bw() / BYTES_TO_MB));
+          latest_stats.disk_bw());
       rd_ptr->mutable_min_available_resources_below()->set_disk_bw(
           rd_ptr->resource_capacity().disk_bw() -
-          (latest_stats.disk_bw() / BYTES_TO_MB));
+          latest_stats.disk_bw());
       rd_ptr->mutable_available_resources()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          (latest_stats.net_tx_bw() / BYTES_TO_MB));
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_max_available_resources_below()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          (latest_stats.net_tx_bw() / BYTES_TO_MB));
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_min_available_resources_below()->set_net_tx_bw(
           rd_ptr->resource_capacity().net_tx_bw() -
-          (latest_stats.net_tx_bw() / BYTES_TO_MB));
+          latest_stats.net_tx_bw());
       rd_ptr->mutable_available_resources()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          (latest_stats.net_rx_bw() / BYTES_TO_MB));
+          latest_stats.net_rx_bw());
       rd_ptr->mutable_max_available_resources_below()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          (latest_stats.net_rx_bw() / BYTES_TO_MB));
+          latest_stats.net_rx_bw());
       rd_ptr->mutable_min_available_resources_below()->set_net_rx_bw(
           rd_ptr->resource_capacity().net_rx_bw() -
-          (latest_stats.net_rx_bw() / BYTES_TO_MB));
+          latest_stats.net_rx_bw());
     }
   }
   if (accumulator->rd_ptr_ && other->rd_ptr_) {

@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Generate Google style trace.
 
 #include "misc/trace_generator.h"
@@ -424,6 +441,25 @@ void TraceGenerator::TaskMigrated(TaskDescriptor* td_ptr,
     TaskEvicted(td_ptr->uid(), old_rd, true);
     TaskSubmitted(td_ptr);
     TaskScheduled(td_ptr->uid(), new_rd);
+  }
+}
+
+void TraceGenerator::TaskRemoved(TaskID_t task_id, bool was_running) {
+  if (FLAGS_generate_trace) {
+    if (was_running) {
+      running_tasks_cnt_--;
+    }
+    task_events_cnt_per_round_++;
+    uint64_t timestamp = time_manager_->GetCurrentTimestamp();
+    uint64_t* job_id_ptr = FindOrNull(task_to_job_, task_id);
+    CHECK_NOTNULL(job_id_ptr);
+    TaskRuntime* tr_ptr = FindOrNull(task_to_runtime_, task_id);
+    CHECK_NOTNULL(tr_ptr);
+    fprintf(task_events_, "%ju,,%ju,%ju,,,%d,,,,,,,\n",
+            timestamp, *job_id_ptr, tr_ptr->task_id_, TASK_REMOVED_EVENT);
+    fflush(task_events_);
+    task_to_job_.erase(task_id);
+    task_to_runtime_.erase(task_id);
   }
 }
 

@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2016 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Quincy scheduling cost model, as described in the SOSP 2009 paper.
 
 #include "scheduling/flow/quincy_cost_model.h"
@@ -18,6 +34,7 @@
 #include "scheduling/common.h"
 #include "scheduling/knowledge_base.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/flow/cost_model_utils.h"
 
 DEFINE_double(quincy_wait_time_factor, 0.5, "The Quincy wait time factor");
 DEFINE_double(quincy_preferred_machine_data_fraction, 0.1,
@@ -68,7 +85,7 @@ QuincyCostModel::~QuincyCostModel() {
 
 // The cost of leaving a task unscheduled should be higher than the cost of
 // scheduling it.
-Cost_t QuincyCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
+ArcDescriptor QuincyCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
   const TaskDescriptor& td = GetTask(task_id);
   int64_t no_delay_offset = 0;
   if (FLAGS_quincy_no_scheduling_delay) {
@@ -81,7 +98,9 @@ Cost_t QuincyCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
   if (td.priority() == 1000) {
     // XXX(ionel): HACK! This forces synthetic tasks to be scheduled while
     // replaying a Google trace.
-    return 100 + FLAGS_quincy_positive_cost_offset + no_delay_offset;
+    return ArcDescriptor(
+        100 + FLAGS_quincy_positive_cost_offset + no_delay_offset,
+        1ULL, 0ULL);
   }
   int64_t total_unscheduled_time =
     static_cast<int64_t>(td.total_unscheduled_time());
@@ -91,36 +110,41 @@ Cost_t QuincyCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
       static_cast<int64_t>(time_manager_->GetCurrentTimestamp()) -
       static_cast<int64_t>(td.submit_time());
   }
-  return static_cast<Cost_t>(total_unscheduled_time *
-                             FLAGS_quincy_wait_time_factor /
-                             static_cast<int64_t>(MICROSECONDS_IN_SECOND) +
-                             FLAGS_quincy_positive_cost_offset + no_delay_offset);
+  return ArcDescriptor(
+      static_cast<Cost_t>(total_unscheduled_time *
+                          FLAGS_quincy_wait_time_factor /
+                          static_cast<int64_t>(MICROSECONDS_IN_SECOND) +
+                          FLAGS_quincy_positive_cost_offset + no_delay_offset),
+      1ULL, 0ULL);
 }
 
 // The cost from the unscheduled to the sink is 0. Setting it to a value greater
 // than zero affects all the unscheduled tasks. It is better to affect the cost
 // of not running a task through the cost from the task to the unscheduled
 // aggregator.
-Cost_t QuincyCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0LL;
+ArcDescriptor QuincyCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t QuincyCostModel::TaskToResourceNodeCost(TaskID_t task_id,
-                                               ResourceID_t resource_id) {
+ArcDescriptor QuincyCostModel::TaskToResourceNode(TaskID_t task_id,
+                                                  ResourceID_t resource_id) {
   auto machines_data = FindOrNull(task_preferred_machines_, task_id);
   if (machines_data) {
     Cost_t* transfer_cost = FindOrNull(*machines_data, resource_id);
     if (transfer_cost) {
-      return *transfer_cost + FLAGS_quincy_positive_cost_offset;
+      return ArcDescriptor(*transfer_cost + FLAGS_quincy_positive_cost_offset,
+                           1ULL, 0ULL);
     } else {
       // The machine is not a preferred one.
-      return GetTransferCostToNotPreferredRes(task_id, resource_id) +
-        FLAGS_quincy_positive_cost_offset;
+      return ArcDescriptor(
+          GetTransferCostToNotPreferredRes(task_id, resource_id) +
+          FLAGS_quincy_positive_cost_offset, 1ULL, 0ULL);
     }
   } else {
     // The task doesn't have any preferred machines.
-    return GetTransferCostToNotPreferredRes(task_id, resource_id) +
-      FLAGS_quincy_positive_cost_offset;
+    return ArcDescriptor(
+        GetTransferCostToNotPreferredRes(task_id, resource_id) +
+        FLAGS_quincy_positive_cost_offset, 1ULL, 0ULL);
   }
 }
 
@@ -152,24 +176,25 @@ Cost_t QuincyCostModel::GetTransferCostToNotPreferredRes(
   }
 }
 
-Cost_t QuincyCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor QuincyCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
   // Cost between resource nodes is always 0.
-  return 0LL;
+  return ArcDescriptor(0LL, CapacityFromResNodeToParent(destination), 0ULL);
 }
 
-Cost_t QuincyCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
+ArcDescriptor QuincyCostModel::LeafResourceNodeToSink(
+    ResourceID_t resource_id) {
   // The cost from the resource leaf to the sink is 0.
-  return 0LL;
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t QuincyCostModel::TaskContinuationCost(TaskID_t task_id) {
+ArcDescriptor QuincyCostModel::TaskContinuation(TaskID_t task_id) {
   const TaskDescriptor& td = GetTask(task_id);
   ResourceID_t pu_res_id = ResourceIDFromString(td.scheduled_to_resource());
   ResourceID_t machine_res_id =
     MachineResIDForResource(resource_map_, pu_res_id);
-  Cost_t cost_to_resource = TaskToResourceNodeCost(task_id, machine_res_id);
+  ArcDescriptor arc_cost_cap = TaskToResourceNode(task_id, machine_res_id);
   // NOTE: total_run_time only includes the time of previous runs. We need
   // to include the current run time as well in order for the continuation
   // cost to be correct.
@@ -178,39 +203,41 @@ Cost_t QuincyCostModel::TaskContinuationCost(TaskID_t task_id) {
   task_executed_for =
     (td.total_run_time() + time_manager_->GetCurrentTimestamp() -
      td.start_time()) / MICROSECONDS_IN_SECOND;
-  // cost_to_resource corresponds to d* and total_running_time corresponds
+  // arc_cost_cap.cost_ corresponds to d* and total_running_time corresponds
   // to p* in the Quincy paper.
-  // NOTE: We don't have to offset the cost because the cost_to_resource is
+  // NOTE: We don't have to offset the cost because the arc_cost_cap.cost_ is
   // already offsetted.
-  return cost_to_resource - static_cast<Cost_t>(task_executed_for);
-
+  return ArcDescriptor(arc_cost_cap.cost_ -
+                       static_cast<Cost_t>(task_executed_for),
+                       1ULL, 0ULL);
 }
 
-Cost_t QuincyCostModel::TaskPreemptionCost(TaskID_t task_id) {
-  // NOTE: We don't have to offset the cost because TaskToUnscheduledAggCost
+ArcDescriptor QuincyCostModel::TaskPreemption(TaskID_t task_id) {
+  // NOTE: We don't have to offset the cost because TaskToUnscheduledAgg
   // already does it.
-  return TaskToUnscheduledAggCost(task_id);
+  return ArcDescriptor(TaskToUnscheduledAgg(task_id).cost_, 1ULL, 0ULL);
 }
 
-Cost_t QuincyCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                   EquivClass_t ec) {
+ArcDescriptor QuincyCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                          EquivClass_t ec) {
   auto ec_costs = FindOrNull(task_preferred_ecs_, task_id);
   CHECK_NOTNULL(ec_costs);
   Cost_t* transfer_cost = FindOrNull(*ec_costs, ec);
   CHECK_NOTNULL(transfer_cost);
-  return *transfer_cost + FLAGS_quincy_positive_cost_offset;
+  return ArcDescriptor(*transfer_cost + FLAGS_quincy_positive_cost_offset,
+                       1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> QuincyCostModel::EquivClassToResourceNode(
+ArcDescriptor QuincyCostModel::EquivClassToResourceNode(
     EquivClass_t ec,
     ResourceID_t res_id) {
   CHECK_NE(ec, cluster_aggregator_ec_);
   uint64_t capacity = GetNumSchedulableSlots(res_id);
   // Cost of arcs from rack aggregators are always zero.
-  return pair<Cost_t, uint64_t>(0LL, capacity);
+  return ArcDescriptor(0LL, capacity, 0ULL);
 }
 
-pair<Cost_t, uint64_t> QuincyCostModel::EquivClassToEquivClass(
+ArcDescriptor QuincyCostModel::EquivClassToEquivClass(
     EquivClass_t ec1,
     EquivClass_t ec2) {
   if (ec1 == cluster_aggregator_ec_) {
@@ -220,7 +247,7 @@ pair<Cost_t, uint64_t> QuincyCostModel::EquivClassToEquivClass(
     for (const auto& machine_res_id : machines_res_id) {
       capacity += GetNumSchedulableSlots(machine_res_id);
     }
-    return pair<Cost_t, uint64_t>(0LL, capacity);
+    return ArcDescriptor(0LL, capacity, 0ULL);
   } else {
     LOG(FATAL) << "We only have arcs between cluster agg EC and rack ECs";
   }
@@ -561,7 +588,7 @@ void QuincyCostModel::ConstructTaskPreferredSet(TaskID_t task_id) {
     CHECK_NOTNULL(td_ptr);
     trace_generator_->AddTaskQuincy(*td_ptr, input_size, worst_cluster_cost,
                                     best_rack_cost, best_machine_cost,
-                                    TaskToUnscheduledAggCost(td_ptr->uid()),
+                                    TaskToUnscheduledAgg(td_ptr->uid()).cost_,
                                     preferred_machines->size(),
                                     preferred_ecs->size() - 1);
   }

@@ -1,13 +1,29 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Main task library class.
 // TODO(malte): This should really be made platform-independent, so that we can
 // have platform-specific libraries.
 
 #include "engine/task_lib.h"
 
-#include <jansson.h>
 #include <vector>
 #include <stdlib.h>
 #include <iostream>
@@ -16,6 +32,7 @@
 
 #include "base/common.h"
 #include "base/data_object.h"
+#include "base/units.h"
 #include "messages/registration_message.pb.h"
 #include "messages/task_heartbeat_message.pb.h"
 #include "messages/task_info_message.pb.h"
@@ -129,20 +146,15 @@ void TaskLib::Stop(bool success) {
 }
 
 void TaskLib::AddTaskStatisticsToHeartbeat(
-    const ProcFSMonitor::ProcessStatistics_t& proc_stats,
-    TaskPerfStatisticsSample* stats) {
+    const ProcFSMonitor::ProcessStatistics_t& proc_stats, TaskStats* stats) {
   // Task ID and timestamp
   stats->set_task_id(task_id_);
-  stats->set_timestamp(time_manager_.GetCurrentTimestamp());
   stats->set_hostname(hostname_);
+  stats->set_timestamp(time_manager_.GetCurrentTimestamp());
 
   if (use_procfs_) {
     // Memory allocated and used
-    stats->set_vsize(proc_stats.vsize);
-    stats->set_rsize(proc_stats.rss * getpagesize());
-    // Scheduler statistics
-    stats->set_sched_run(proc_stats.sched_run_ticks);
-    stats->set_sched_wait(proc_stats.sched_wait_runnable_ticks);
+    stats->set_mem_usage(proc_stats.rss * getpagesize() / BYTES_TO_KB);
   }
 }
 
@@ -336,10 +348,8 @@ void TaskLib::SendHeartbeat(
   SUBMSG_WRITE(bm, task_heartbeat, task_id, task_id_);
   // Add current set of procfs statistics
 
-  TaskPerfStatisticsSample* taskperf_stats =
-      bm.mutable_task_heartbeat()->mutable_stats();
-
-  AddTaskStatisticsToHeartbeat(proc_stats, taskperf_stats);
+  TaskStats* task_stats = bm.mutable_task_heartbeat()->mutable_stats();
+  AddTaskStatisticsToHeartbeat(proc_stats, task_stats);
 
   // TODO(malte): we do not always need to send the location string; it
   // sufficies to send it if our location changed (which should be rare).

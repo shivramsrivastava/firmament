@@ -4,7 +4,9 @@ set(SCHEDULING_SRC
   scheduling/common.cc
   scheduling/event_driven_scheduler.cc
   scheduling/knowledge_base.cc
+  scheduling/label_utils.cc
   scheduling/flow/coco_cost_model.cc
+  scheduling/flow/cost_model_utils.cc
   scheduling/flow/dimacs_add_node.cc
   scheduling/flow/dimacs_change_arc.cc
   scheduling/flow/dimacs_change_stats.cc
@@ -21,6 +23,7 @@ set(SCHEDULING_SRC
   scheduling/flow/net_cost_model.cc
   scheduling/flow/octopus_cost_model.cc
   scheduling/flow/quincy_cost_model.cc
+  scheduling/flow/quincy_interference_cost_model.cc
   scheduling/flow/random_cost_model.cc
   scheduling/flow/sjf_cost_model.cc
   scheduling/flow/solver_dispatcher.cc
@@ -35,11 +38,21 @@ set(SCHEDULING_PROTOBUFS
   scheduling/scheduling_delta.proto
   )
 
+set(SCHEDULING_SERVICE_SRC
+  scheduling/firmament_scheduler_service.cc
+  scheduling/knowledge_base_populator.cc
+  )
+
+set(SCHEDULING_SERVICE_PROTOBUFS
+  scheduling/firmament_scheduler.proto
+  )
+
 set(SCHEDULING_TESTS
   scheduling/flow/dimacs_exporter_test.cc
   scheduling/flow/flow_graph_change_manager_test.cc
   scheduling/flow/flow_graph_manager_test.cc
   scheduling/flow/flow_graph_test.cc
+  scheduling/label_utils_test.cc
 )
 
 #add_library(firmament_scheduling ${SCHEDULING_SRC} ${SCHEDULING_PROTOBUFS_SRCS} ${SCHEDULING_PROTOBUF_HDRS})
@@ -47,7 +60,8 @@ set(SCHEDULING_TESTS
 ###############################################################################
 # Protocol buffers
 
-PROTOBUF_LIST_COMPILE(SCHEDULING "${SCHEDULING_PROTOBUFS}")
+PROTOBUF_LIST_COMPILE(SCHEDULING "${SCHEDULING_PROTOBUFS}" FALSE)
+PROTOBUF_LIST_COMPILE(SCHEDULING_SERVICE "${SCHEDULING_SERVICE_PROTOBUFS}" TRUE)
 
 ###############################################################################
 # Unit tests

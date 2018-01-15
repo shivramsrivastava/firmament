@@ -8,14 +8,16 @@ set(BASE_SRC
 set(BASE_PROTOBUFS
   base/coco_interference_scores.proto
   base/job_desc.proto
-  base/machine_perf_statistics_sample.proto
+  base/label.proto
+  base/label_selector.proto
   base/reference_desc.proto
   base/resource_desc.proto
+  base/resource_stats.proto
   base/resource_topology_node_desc.proto
   base/resource_vector.proto
   base/task_desc.proto
   base/task_final_report.proto
-  base/task_perf_statistics_sample.proto
+  base/task_stats.proto
   base/whare_map_stats.proto
   )
 
@@ -26,7 +28,7 @@ set(BASE_TESTS
 ###############################################################################
 # Protocol buffers
 
-PROTOBUF_LIST_COMPILE(BASE "${BASE_PROTOBUFS}")
+PROTOBUF_LIST_COMPILE(BASE "${BASE_PROTOBUFS}" FALSE)
 
 ###############################################################################
 # Unit tests

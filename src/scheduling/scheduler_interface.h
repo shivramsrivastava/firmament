@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // The scheduler interface assumed by the engine.
 
 #ifndef FIRMAMENT_SCHEDULING_SCHEDULER_INTERFACE_H
@@ -108,6 +125,13 @@ class SchedulerInterface : public PrintableInterface {
   virtual void HandleJobCompletion(JobID_t job_id) = 0;
 
   /**
+   * Handles the removal of a job. It should only be called after all
+   * job's tasks are removed.
+   * @param job_id the id of the job to be removed
+   */
+  virtual void HandleJobRemoval(JobID_t job_id) = 0;
+
+  /**
    * Handles the completion of a task. This usually involves freeing up its
    * resource by setting it idle, and recording any bookkeeping data required.
    * @param td_ptr the task descriptor of the completed task
@@ -154,6 +178,14 @@ class SchedulerInterface : public PrintableInterface {
    */
   virtual void HandleTaskFinalReport(const TaskFinalReport& report,
                                      TaskDescriptor* td_ptr) = 0;
+
+  /**
+   * Handles the removal of a task. If the task is running, then
+   * it is killed, otherwise the task is just removed from internal data
+   * structures.
+   * @param td_ptr the task descriptor of the task to remove
+   */
+  virtual void HandleTaskRemoval(TaskDescriptor* td_ptr) = 0;
 
   /**
    * Kills a running task.

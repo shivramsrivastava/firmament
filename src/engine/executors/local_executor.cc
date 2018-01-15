@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Local executor class.
 
 #include "engine/executors/local_executor.h"
@@ -398,7 +415,10 @@ int32_t LocalExecutor::RunProcessSync(TaskID_t task_id,
         PLOG(FATAL) << "Failed to close stderr FD in child";
 
       // Change to task's working directory
-      CHECK_EQ(chdir(env["FLAGS_task_data_dir"].c_str()), 0);
+      if (!FindOrNull(env, "FLAGS_task_data_dir") &&
+          !env["FLAGS_task_data_dir"].empty()) {
+        CHECK_EQ(chdir(env["FLAGS_task_data_dir"].c_str()), 0);
+      }
 
       // Close the open FDs in the child before exec-ing, so that the task does
       // not inherit all of the coordinator's sockets and FDs.

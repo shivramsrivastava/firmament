@@ -1,4 +1,8 @@
 ###############################################################################
+# pkg-config (which we rely on for detecting some other libraries)
+find_package(PkgConfig REQUIRED)
+
+###############################################################################
 # Boost
 find_package(Boost REQUIRED COMPONENTS chrono date_time filesystem regex
   system thread timer)
@@ -105,6 +109,10 @@ set(gmock_MAIN_LIBRARY ${gtest_BINARY_DIR}/googlemock/libgmock_main.a)
 find_package(Hwloc REQUIRED)
 
 ###############################################################################
+# libctemplate
+find_package(Ctemplate REQUIRED)
+
+###############################################################################
 # libhdfs3
 if (${ENABLE_HDFS})
   # libHDFS requires libxml2
@@ -130,26 +138,8 @@ if (${ENABLE_HDFS})
 endif (${ENABLE_HDFS})
 
 ###############################################################################
-# pb2json
-ExternalProject_Add(
-    pb2json
-    GIT_REPOSITORY https://github.com/ms705/pb2json.git
-    TIMEOUT 10
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/third_party/pb2json
-    BUILD_IN_SOURCE ON
-    # XXX/malte): workaround for CMake issue forcing a spurious git stash
-    UPDATE_COMMAND ""
-    # no configure step
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND make
-    # no install step
-    INSTALL_COMMAND "")
-
-ExternalProject_Get_Property(pb2json SOURCE_DIR)
-set(pb2json_SOURCE_DIR ${SOURCE_DIR})
-set(pb2json_INCLUDE_DIR ${pb2json_SOURCE_DIR})
-include_directories(${pb2json_INCLUDE_DIR})
-set(pb2json_LIBRARY ${pb2json_SOURCE_DIR}/libpb2json.a)
+# OpenSSL
+find_package(OpenSSL REQUIRED)
 
 ###############################################################################
 # protobuf3
@@ -236,3 +226,41 @@ ExternalProject_Add(
 ExternalProject_Get_Property(thread-safe-stl-containers SOURCE_DIR)
 set(thread-safe-stl-containers_INCLUDE_DIR ${SOURCE_DIR})
 include_directories(${thread-safe-stl-containers_INCLUDE_DIR})
+
+###############################################################################
+# Zlib
+find_package(ZLIB REQUIRED)
+
+###############################################################################
+# grpc
+ExternalProject_Add(
+    grpc
+    GIT_REPOSITORY https://github.com/grpc/grpc.git
+    GIT_TAG v1.2.0
+    TIMEOUT 10
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/third_party/grpc
+    DEPENDS protobuf3
+    BUILD_IN_SOURCE ON
+    INSTALL_COMMAND ""
+    CMAKE_CACHE_ARGS
+        -DCMAKE_BUILD_TYPE:STRING=Release
+        -DCMAKE_VERBOSE_MAKEFILE:BOOL=OFF
+        -DPROTOBUF_INCLUDE_DIRS:STRING=${PROTOBUF3_INCLUDE_DIR}
+        -DPROTOBUF_LIBRARIES:STRING=${protobuf3_LIBRARY}
+        -DZLIB_ROOT:STRING=${ZLIB_INSTALL}
+    # Wrap download, configure and build steps in a script to log output
+    LOG_DOWNLOAD ON
+    LOG_BUILD ON
+    LOG_INSTALL ON)
+
+ExternalProject_Get_Property(grpc SOURCE_DIR)
+ExternalProject_Get_Property(grpc BINARY_DIR)
+set(grpc_SOURCE_DIR ${SOURCE_DIR})
+set(grpc_BINARY_DIR ${BINARY_DIR})
+set(grpc_INCLUDE_DIR ${grpc_SOURCE_DIR}/include)
+include_directories(${grpc_INCLUDE_DIR})
+set(grpc_LIBRARY
+  ${grpc_SOURCE_DIR}/libgrpc++_unsecure.a
+  ${grpc_SOURCE_DIR}/libgrpc_unsecure.a
+  ${grpc_SOURCE_DIR}/libgpr.a)
+message(${grpc_LIBRARY})

@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015-2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Tests for the simulator bridge.
 
 #include <gtest/gtest.h>
@@ -23,7 +40,7 @@ class SimulatorBridgeTest : public ::testing::Test {
     // You can do set-up work for each test here.
     FLAGS_v = 2;
     FLAGS_scheduler = "flow";
-    FLAGS_machine_tmpl_file = "../../../tests/testdata/machine_topo.pbin";
+    FLAGS_machine_tmpl_file = "../../tests/testdata/mach_8pus.pbin";
     simulated_time_ = new SimulatedWallTime();
     event_manager_ = new EventManager(simulated_time_);
     bridge_ = new SimulatorBridge(event_manager_, simulated_time_);
@@ -58,12 +75,12 @@ TEST_F(SimulatorBridgeTest, AddMachine) {
   CHECK_EQ(bridge_->machine_res_id_pus_.size(), 0);
   // Add first machine.
   bridge_->AddMachine(1);
-  CHECK_EQ(bridge_->resource_map_->size(), 24);
+  CHECK_EQ(bridge_->resource_map_->size(), 10);
   CHECK_EQ(bridge_->trace_machine_id_to_rtnd_.size(), 1);
   CHECK_EQ(bridge_->machine_res_id_pus_.size(), 8);
   // Add second machine.
   bridge_->AddMachine(2);
-  CHECK_EQ(bridge_->resource_map_->size(), 47);
+  CHECK_EQ(bridge_->resource_map_->size(), 19);
   CHECK_EQ(bridge_->trace_machine_id_to_rtnd_.size(), 2);
   CHECK_EQ(bridge_->machine_res_id_pus_.size(), 16);
 }
@@ -80,8 +97,8 @@ TEST_F(SimulatorBridgeTest, AddTask) {
   // Add the first task.
   EventDescriptor event_desc;
   event_desc.set_type(EventDescriptor::TASK_SUBMIT);
-  event_desc.set_requested_ram(1);
-  event_desc.set_requested_cpu_cores(1);
+  event_desc.set_requested_ram(1024);
+  event_desc.set_requested_cpu_cores(1000);
   bridge_->AddTask(trace_task_id, event_desc);
   TaskDescriptor* td1_ptr =
     FindPtrOrNull(bridge_->trace_task_id_to_td_, trace_task_id);
@@ -118,8 +135,9 @@ TEST_F(SimulatorBridgeTest, OnJobCompletion) {
   trace_task_id.task_index = 1;
   EventDescriptor event_desc;
   event_desc.set_type(EventDescriptor::TASK_SUBMIT);
-  event_desc.set_requested_ram(1);
-  event_desc.set_requested_cpu_cores(1);
+  event_desc.set_requested_ram(1024);
+  event_desc.set_requested_cpu_cores(1000);
+  bridge_->AddMachine(1);
   bridge_->AddTask(trace_task_id, event_desc);
   TaskDescriptor* td_ptr =
     FindPtrOrNull(bridge_->trace_task_id_to_td_, trace_task_id);
@@ -149,8 +167,9 @@ TEST_F(SimulatorBridgeTest, OnTaskCompletion) {
   trace_task_id.task_index = 1;
   EventDescriptor event_desc;
   event_desc.set_type(EventDescriptor::TASK_SUBMIT);
-  event_desc.set_requested_ram(1);
-  event_desc.set_requested_cpu_cores(1);
+  event_desc.set_requested_ram(1024);
+  event_desc.set_requested_cpu_cores(1000);
+  bridge_->AddMachine(1);
   bridge_->AddTask(trace_task_id, event_desc);
   TaskDescriptor* td_ptr =
     FindPtrOrNull(bridge_->trace_task_id_to_td_, trace_task_id);
@@ -181,8 +200,9 @@ TEST_F(SimulatorBridgeTest, OnTaskEviction) {
   trace_task_id.task_index = 1;
   EventDescriptor event_desc;
   event_desc.set_type(EventDescriptor::TASK_SUBMIT);
-  event_desc.set_requested_ram(1);
-  event_desc.set_requested_cpu_cores(1);
+  event_desc.set_requested_ram(1024);
+  event_desc.set_requested_cpu_cores(1000);
+  bridge_->AddMachine(1);
   bridge_->AddTask(trace_task_id, event_desc);
   TaskDescriptor* td_ptr =
     FindPtrOrNull(bridge_->trace_task_id_to_td_, trace_task_id);
@@ -211,8 +231,9 @@ TEST_F(SimulatorBridgeTest, OnTaskPlacement) {
   trace_task_id.task_index = 1;
   EventDescriptor event_desc;
   event_desc.set_type(EventDescriptor::TASK_SUBMIT);
-  event_desc.set_requested_ram(1);
-  event_desc.set_requested_cpu_cores(1);
+  event_desc.set_requested_ram(1024);
+  event_desc.set_requested_cpu_cores(1000);
+  bridge_->AddMachine(1);
   bridge_->AddTask(trace_task_id, event_desc);
   TaskDescriptor* td_ptr =
     FindPtrOrNull(bridge_->trace_task_id_to_td_, trace_task_id);
@@ -231,7 +252,7 @@ TEST_F(SimulatorBridgeTest, RemoveMachine) {
   CHECK_EQ(bridge_->trace_machine_id_to_rtnd_.size(), 0);
   CHECK_EQ(bridge_->machine_res_id_pus_.size(), 0);
   bridge_->AddMachine(1);
-  CHECK_EQ(bridge_->resource_map_->size(), 24);
+  CHECK_EQ(bridge_->resource_map_->size(), 10);
   CHECK_EQ(bridge_->trace_machine_id_to_rtnd_.size(), 1);
   CHECK_EQ(bridge_->machine_res_id_pus_.size(), 8);
   bridge_->RemoveMachine(1);

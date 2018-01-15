@@ -1,7 +1,23 @@
-// The Firmament project
-// Copyright (c) 2013-2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-// Copyright (c) 2013 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Implementation of a Quincy-style min-cost flow scheduler.
 
 #include "scheduling/flow/flow_scheduler.h"
@@ -31,7 +47,8 @@
 DEFINE_int32(flow_scheduling_cost_model, 0,
              "Flow scheduler cost model to use. "
              "Values: 0 = TRIVIAL, 1 = RANDOM, 2 = SJF, 3 = QUINCY, "
-             "4 = WHARE, 5 = COCO, 6 = OCTOPUS, 7 = VOID, 8 = NET");
+             "4 = WHARE, 5 = COCO, 6 = OCTOPUS, 7 = VOID, 8 = NET, "
+             "9 = QUINCY_INTERFERENCE");
 DEFINE_uint64(max_solver_runtime, 100000000,
               "Maximum runtime of the solver in u-sec");
 DEFINE_int64(time_dependent_cost_update_frequency, 10000000ULL,
@@ -48,6 +65,8 @@ DEFINE_uint64(max_tasks_per_pu, 1,
 DEFINE_string(solver_runtime_accounting_mode, "algorithm",
               "Options: algorithm | solver | firmament. Modes to account for "
               "scheduling duration in simulations");
+DEFINE_bool(reschedule_tasks_upon_node_failure, true, "True if tasks that were "
+            "running on failed nodes should be rescheduled");
 
 DECLARE_string(flow_scheduling_solver);
 DECLARE_bool(flowlessly_flip_algorithms);
@@ -108,7 +127,8 @@ FlowScheduler::FlowScheduler(
       break;
     case CostModelType::COST_MODEL_QUINCY:
       cost_model_ = new QuincyCostModel(resource_map, job_map, task_map,
-                                        knowledge_base_, trace_generator_, time_manager_);
+                                        knowledge_base_, trace_generator_,
+                                        time_manager_);
       VLOG(1) << "Using the Quincy cost model";
       break;
     case CostModelType::COST_MODEL_WHARE:
@@ -127,6 +147,13 @@ FlowScheduler::FlowScheduler(
     case CostModelType::COST_MODEL_NET:
       cost_model_ = new NetCostModel(resource_map, task_map, knowledge_base);
       VLOG(1) << "Using the net cost model";
+      break;
+    case CostModelType::COST_MODEL_QUINCY_INTERFERENCE:
+      cost_model_ =
+        new QuincyInterferenceCostModel(resource_map, job_map, task_map,
+                                        knowledge_base_, trace_generator_,
+                                        time_manager_);
+      VLOG(1) << "Using the Quincy interference cost model";
       break;
     default:
       LOG(FATAL) << "Unknown flow scheduling cost model specificed "
@@ -191,7 +218,8 @@ void FlowScheduler::DeregisterResource(
   // Traverse the resource topology tree in order to evict tasks.
   DFSTraversePostOrderResourceProtobufTreeReturnRTND(
       rtnd_ptr,
-      boost::bind(&FlowScheduler::EvictTasksFromResource, this, _1));
+      boost::bind(&FlowScheduler::HandleTasksFromDeregisteredResource,
+                  this, _1));
   flow_graph_manager_->RemoveResourceTopology(
       rtnd_ptr->resource_desc(), &pus_removed_during_solver_run_);
   if (rtnd_ptr->parent_id().empty()) {
@@ -200,14 +228,18 @@ void FlowScheduler::DeregisterResource(
   EventDrivenScheduler::DeregisterResource(rtnd_ptr);
 }
 
-void FlowScheduler::EvictTasksFromResource(
+void FlowScheduler::HandleTasksFromDeregisteredResource(
     ResourceTopologyNodeDescriptor* rtnd_ptr) {
   ResourceID_t res_id = ResourceIDFromString(rtnd_ptr->resource_desc().uuid());
   vector<TaskID_t> tasks = BoundTasksForResource(res_id);
   ResourceDescriptor* rd_ptr = rtnd_ptr->mutable_resource_desc();
   for (auto& task_id : tasks) {
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
-    HandleTaskEviction(td_ptr, rd_ptr);
+    if (FLAGS_reschedule_tasks_upon_node_failure) {
+      HandleTaskEviction(td_ptr, rd_ptr);
+    } else {
+      HandleTaskFailure(td_ptr);
+    }
   }
 }
 
@@ -219,16 +251,30 @@ void FlowScheduler::HandleJobCompletion(JobID_t job_id) {
   EventDrivenScheduler::HandleJobCompletion(job_id);
 }
 
+void FlowScheduler::HandleJobRemoval(JobID_t job_id) {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
+  flow_graph_manager_->JobRemoved(job_id);
+  // Call into superclass handler
+  EventDrivenScheduler::HandleJobRemoval(job_id);
+}
+
 void FlowScheduler::HandleTaskCompletion(TaskDescriptor* td_ptr,
                                          TaskFinalReport* report) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
+  bool task_in_graph = true;
+  if (td_ptr->state() == TaskDescriptor::FAILED ||
+      td_ptr->state() == TaskDescriptor::ABORTED) {
+    // If the task is marked as failed/aborted then it has already been
+    // removed from the flow network.
+    task_in_graph = false;
+  }
   // We first call into the superclass handler because it populates
   // the task report. The report might be used by the cost models.
   EventDrivenScheduler::HandleTaskCompletion(td_ptr, report);
   // We don't need to do any flow graph stuff for delegated tasks as
   // they are not currently represented in the flow graph.
   // Otherwise, we need to remove nodes, etc.
-  if (td_ptr->delegated_from().empty()) {
+  if (td_ptr->delegated_from().empty() && task_in_graph) {
     uint64_t task_node_id = flow_graph_manager_->TaskCompleted(td_ptr->uid());
     tasks_completed_during_solver_run_.insert(task_node_id);
   }
@@ -291,6 +337,12 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
   flow_graph_manager_->TaskScheduled(td_ptr->uid(),
                                      ResourceIDFromString(rd_ptr->uuid()));
   EventDrivenScheduler::HandleTaskPlacement(td_ptr, rd_ptr);
+}
+
+void FlowScheduler::HandleTaskRemoval(TaskDescriptor* td_ptr) {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
+  flow_graph_manager_->TaskRemoved(td_ptr->uid());
+  EventDrivenScheduler::HandleTaskRemoval(td_ptr);
 }
 
 void FlowScheduler::KillRunningTask(TaskID_t task_id,

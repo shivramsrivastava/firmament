@@ -1,5 +1,22 @@
-// The Firmament project
-// Copyright (c) 2016 Ionel Gog <ionel.gog@cl.cam.ac.uk>
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #include <gtest/gtest.h>
 
@@ -43,6 +60,18 @@ class FlowGraphChangeManagerTest : public ::testing::Test {
   DIMACSChangeStats dimacs_stats_;
   FlowGraphChangeManager* change_manager_;
 };
+
+TEST_F(FlowGraphChangeManagerTest, AddGraphChange) {
+  FlowGraphNode node1(1);
+  FlowGraphNode node2(2);
+  FlowGraphArc arc12(1, 2, 0, 1, 42, &node1, &node2);
+  change_manager_->AddGraphChange(
+      new DIMACSAddNode(node1, vector<FlowGraphArc*>()));
+  change_manager_->AddGraphChange(
+      new DIMACSAddNode(node2, vector<FlowGraphArc*>()));
+  change_manager_->AddGraphChange(new DIMACSNewArc(arc12));
+  EXPECT_EQ(change_manager_->graph_changes_.size(), 3);
+}
 
 TEST_F(FlowGraphChangeManagerTest, MergeChangesToSameArc) {
   FlowGraphNode node1(1);
@@ -115,6 +144,20 @@ TEST_F(FlowGraphChangeManagerTest, RemoveDuplicateChanges) {
   EXPECT_EQ(change_manager_->graph_changes_.size(), 9);
   change_manager_->RemoveDuplicateChanges();
   EXPECT_EQ(change_manager_->graph_changes_.size(), 8);
+}
+
+TEST_F(FlowGraphChangeManagerTest, ResetChanges) {
+  FlowGraphNode node1(1);
+  FlowGraphNode node2(2);
+  FlowGraphArc arc12(1, 2, 0, 1, 42, &node1, &node2);
+  change_manager_->AddGraphChange(
+      new DIMACSAddNode(node1, vector<FlowGraphArc*>()));
+  change_manager_->AddGraphChange(
+      new DIMACSAddNode(node2, vector<FlowGraphArc*>()));
+  change_manager_->AddGraphChange(new DIMACSNewArc(arc12));
+  EXPECT_EQ(change_manager_->graph_changes_.size(), 3);
+  change_manager_->ResetChanges();
+  EXPECT_EQ(change_manager_->graph_changes_.size(), 0);
 }
 
 }  // namespace firmament

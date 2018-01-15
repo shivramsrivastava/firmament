@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2013 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // General abstract superclass for event-driven schedulers.
 
 #ifndef FIRMAMENT_SCHEDULING_EVENT_DRIVEN_SCHEDULER_H
@@ -53,6 +70,7 @@ class EventDrivenScheduler : public SchedulerInterface {
   void CheckRunningTasksHealth();
   virtual void DeregisterResource(ResourceTopologyNodeDescriptor* rtnd_ptr);
   virtual void HandleJobCompletion(JobID_t job_id);
+  virtual void HandleJobRemoval(JobID_t job_id);
   virtual void HandleReferenceStateChange(const ReferenceInterface& old_ref,
                                           const ReferenceInterface& new_ref,
                                           TaskDescriptor* td_ptr);
@@ -65,6 +83,7 @@ class EventDrivenScheduler : public SchedulerInterface {
   virtual void HandleTaskFailure(TaskDescriptor* td_ptr);
   virtual void HandleTaskFinalReport(const TaskFinalReport& report,
                                      TaskDescriptor* td_ptr);
+  virtual void HandleTaskRemoval(TaskDescriptor* td_ptr);
   virtual void KillRunningTask(TaskID_t task_id,
                                TaskKillMessage::TaskKillReason reason);
   bool PlaceDelegatedTask(TaskDescriptor* td, ResourceID_t target_resource);

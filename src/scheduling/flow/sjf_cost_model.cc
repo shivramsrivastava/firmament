@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2014 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Simple shortest-job-first scheduling cost model.
 
 #include "scheduling/flow/sjf_cost_model.h"
@@ -16,6 +33,7 @@
 #include "misc/map-util.h"
 #include "scheduling/knowledge_base.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/flow/cost_model_utils.h"
 
 DECLARE_bool(preemption);
 DECLARE_uint64(max_tasks_per_pu);
@@ -45,7 +63,7 @@ const TaskDescriptor& SJFCostModel::GetTask(TaskID_t task_id) {
 
 // The cost of leaving a task unscheduled should be higher than the cost of
 // scheduling it.
-Cost_t SJFCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
+ArcDescriptor SJFCostModel::TaskToUnscheduledAgg(TaskID_t task_id) {
   const TaskDescriptor& td = GetTask(task_id);
   uint64_t now = time_manager_->GetCurrentTimestamp();
   uint64_t time_since_submit = now - td.submit_time();
@@ -59,16 +77,18 @@ Cost_t SJFCostModel::TaskToUnscheduledAggCost(TaskID_t task_id) {
   Cost_t avg_runtime = static_cast<Cost_t>(
       knowledge_base_->GetAvgRuntimeForTEC(equiv_classes->front()));
   delete equiv_classes;
-  return max(static_cast<Cost_t>(WAIT_TIME_MULTIPLIER * wait_time_centamillis),
-             avg_runtime * 100);
+  return ArcDescriptor(max(static_cast<Cost_t>(WAIT_TIME_MULTIPLIER *
+                                               wait_time_centamillis),
+                        avg_runtime * 100),
+                    1ULL, 0ULL);
 }
 
 // The cost from the unscheduled to the sink is 0. Setting it to a value greater
 // than zero affects all the unscheduled tasks. It is better to affect the cost
 // of not running a task through the cost from the task to the unscheduled
 // aggregator.
-Cost_t SJFCostModel::UnscheduledAggToSinkCost(JobID_t job_id) {
-  return 0ULL;
+ArcDescriptor SJFCostModel::UnscheduledAggToSink(JobID_t job_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
 // The cost from the task to the cluster aggregator models how expensive is a
@@ -84,51 +104,51 @@ Cost_t SJFCostModel::TaskToClusterAggCost(TaskID_t task_id) {
   return avg_runtime * 100;
 }
 
-Cost_t SJFCostModel::TaskToResourceNodeCost(TaskID_t task_id,
+ArcDescriptor SJFCostModel::TaskToResourceNode(TaskID_t task_id,
                                             ResourceID_t resource_id) {
-  return TaskToClusterAggCost(task_id);
+  return ArcDescriptor(TaskToClusterAggCost(task_id), 1ULL, 0ULL);
 }
 
-Cost_t SJFCostModel::ResourceNodeToResourceNodeCost(
+ArcDescriptor SJFCostModel::ResourceNodeToResourceNode(
     const ResourceDescriptor& source,
     const ResourceDescriptor& destination) {
-  return 0LL;
+  return ArcDescriptor(0LL, CapacityFromResNodeToParent(destination), 0ULL);
 }
 
 // The cost from the resource leaf to the sink is 0.
-Cost_t SJFCostModel::LeafResourceNodeToSinkCost(ResourceID_t resource_id) {
-  return 0LL;
+ArcDescriptor SJFCostModel::LeafResourceNodeToSink(ResourceID_t resource_id) {
+  return ArcDescriptor(0LL, FLAGS_max_tasks_per_pu, 0ULL);
 }
 
-Cost_t SJFCostModel::TaskContinuationCost(TaskID_t task_id) {
-  return 0LL;
+ArcDescriptor SJFCostModel::TaskContinuation(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t SJFCostModel::TaskPreemptionCost(TaskID_t task_id) {
-  return 0LL;
+ArcDescriptor SJFCostModel::TaskPreemption(TaskID_t task_id) {
+  return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-Cost_t SJFCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
-                                                EquivClass_t ec) {
+ArcDescriptor SJFCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
+                                                       EquivClass_t ec) {
   if (ec == cluster_aggregator_ec_)
-    return TaskToClusterAggCost(task_id) + 1;
+    return ArcDescriptor(TaskToClusterAggCost(task_id) + 1, 1ULL, 0ULL);
   else
-    return 0ULL;
+    return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
-pair<Cost_t, uint64_t> SJFCostModel::EquivClassToResourceNode(
+ArcDescriptor SJFCostModel::EquivClassToResourceNode(
     EquivClass_t tec,
     ResourceID_t res_id) {
   ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
   CHECK_NOTNULL(rs);
   uint64_t num_free_slots = rs->descriptor().num_slots_below() -
     rs->descriptor().num_running_tasks_below();
-  return pair<Cost_t, uint64_t>(0LL, num_free_slots);
+  return ArcDescriptor(0LL, num_free_slots, 0ULL);
 }
 
-pair<Cost_t, uint64_t> SJFCostModel::EquivClassToEquivClass(EquivClass_t tec1,
-                                                            EquivClass_t tec2) {
-  return pair<Cost_t, uint64_t>(0LL, 0ULL);
+ArcDescriptor SJFCostModel::EquivClassToEquivClass(EquivClass_t tec1,
+                                                   EquivClass_t tec2) {
+  return ArcDescriptor(0LL, 0ULL, 0ULL);
 }
 
 vector<EquivClass_t>* SJFCostModel::GetTaskEquivClasses(TaskID_t task_id) {

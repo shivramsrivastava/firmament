@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Common unit conversion constants.
 
 #ifndef FIRMAMENT_BASE_UNITS_H
@@ -13,10 +30,12 @@ namespace firmament {
 // Capacity
 const uint64_t BYTES_TO_MB = 1024 * 1024;
 const uint64_t BYTES_TO_GB = 1024 * 1024 * 1024;
+const uint64_t BYTES_TO_KB = 1024;
 const uint64_t KB_TO_BYTES = 1024;
 const uint64_t KB_TO_MB = 1024;
 const uint64_t KB_TO_GB = 1024 * 1024;
 const uint64_t MB_TO_BYTES = 1024 * 1024;
+const uint64_t MB_TO_KB = 1024;
 
 // Bandwidth
 const uint64_t BYTES_TO_MBITS = 8 * 1000 * 1000;

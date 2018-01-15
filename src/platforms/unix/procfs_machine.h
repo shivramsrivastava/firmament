@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2013 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Simple wrapper to poll information from ProcFS.
 
 #ifndef FIRMAMENT_PLATFORMS_UNIX_PROCFS_MACHINE_H
@@ -8,7 +25,7 @@
 
 #include <vector>
 
-#include "base/machine_perf_statistics_sample.pb.h"
+#include "base/resource_stats.pb.h"
 #include "platforms/unix/common.h"
 
 namespace firmament {
@@ -49,26 +66,20 @@ typedef struct {
 class ProcFSMachine {
  public:
   ProcFSMachine();
-  const MachinePerfStatisticsSample* CreateStatistics(
-      MachinePerfStatisticsSample* stats);
+  const ResourceStats* CreateStatistics(ResourceStats* stats);
   void GetMachineCapacity(ResourceVector* cap);
 
  private:
   vector<CPUStatistics_t> GetCPUStats();
-  vector<CpuUsage> GetCPUUsage();
+  vector<CpuStats> GetCPUUsage();
   DiskStatistics_t GetDiskStats();
   MemoryStatistics_t GetMemoryStats();
   NetworkStatistics_t GetNetworkStats();
 
   inline int readunsigned(FILE* input, uint64_t *x) {
-    int valid_unsigned_read = -1;
-    valid_unsigned_read = fscanf(input, "%ju ", x);
-
-    if (valid_unsigned_read <= 0){
-       return -1;
-    }else{
-       return 0;
-    }
+    errno = 0;             //reset errno
+    fscanf(input, "%ju ", x);
+    return errno;
   }
 
   vector<CPUStatistics_t> cpu_stats_;

@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2015 Ionel Gog <ionel.gog@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Implementation of the simulator's knowledge base.
 #include "sim/knowledge_base_simulator.h"
 
@@ -25,6 +42,8 @@ DEFINE_double(devil_page_cache_threshold, 0.05,
               "Total page cache threshold for DEVIL");
 DEFINE_double(sheep_cpi_threshold, 1.6, "CPI threshold for SHEEP");
 DEFINE_double(sheep_mai_threshold, 0.001, "MAI thereshold for SHEEP");
+DEFINE_bool(task_duration_oracle, false, "True if task duration in the KB is "
+            "supposed to be set from the trace ahead of running the task.");
 
 namespace firmament {
 namespace sim {
@@ -41,7 +60,7 @@ void KnowledgeBaseSimulator::AddMachineSample(
     uint64_t current_simulation_time,
     ResourceDescriptor* rd_ptr,
     const unordered_map<TaskID_t, ResourceDescriptor*>& task_id_to_rd) {
-  MachinePerfStatisticsSample machine_stats;
+  ResourceStats machine_stats;
   machine_stats.set_resource_id(rd_ptr->uuid());
   machine_stats.set_timestamp(current_simulation_time);
   uint64_t mem_usage = 0;
@@ -54,9 +73,13 @@ void KnowledgeBaseSimulator::AddMachineSample(
       // We don't have any stats for the task. Ignore it.
       continue;
     }
-    mem_usage += task_stat->avg_canonical_mem_usage_ +
-      task_stat->avg_unmapped_page_cache_ -
-      task_stat->avg_total_page_cache_;
+    if (task_stat->avg_canonical_mem_usage_ > 0 ||
+        task_stat->avg_unmapped_page_cache_ > 0 ||
+        task_stat->avg_total_page_cache_ > 0) {
+      mem_usage += task_stat->avg_canonical_mem_usage_ +
+        task_stat->avg_unmapped_page_cache_ -
+        task_stat->avg_total_page_cache_;
+    }
     string label = task_id_rd.second->friendly_name();
     uint64_t idx = label.find("PU #");
     CHECK_NE(idx, string::npos)
@@ -72,15 +95,14 @@ void KnowledgeBaseSimulator::AddMachineSample(
     cpus_usage[core_id] -= task_stat->avg_mean_cpu_usage_;
   }
   // RAM stats
-  machine_stats.set_total_ram(rd_ptr->resource_capacity().ram_cap() *
-                              MB_TO_BYTES);
-  machine_stats.set_free_ram(
-      (rd_ptr->resource_capacity().ram_cap() - mem_usage) * MB_TO_BYTES);
+  machine_stats.set_mem_capacity(rd_ptr->resource_capacity().ram_cap());
+  machine_stats.set_mem_utilization(mem_usage);
   // CPU stats
   for (auto& usage : cpus_usage) {
-    CpuUsage* cpu_usage = machine_stats.add_cpus_usage();
-    // Transform to percentage.
-    cpu_usage->set_idle(usage * 100.0);
+    CpuStats* cpu_stats = machine_stats.add_cpus_stats();
+    // Capacity is 1000 millicores
+    cpu_stats->set_cpu_capacity(1000);
+    cpu_stats->set_cpu_utilization(1.0 - usage);
     // We don't have information to fill in the other fields.
   }
   // Disk stats
@@ -95,6 +117,19 @@ void KnowledgeBaseSimulator::AddMachineSample(
 
 void KnowledgeBaseSimulator::EraseTraceTaskStats(TaskID_t task_id) {
   task_stats_.erase(task_id);
+}
+
+uint64_t KnowledgeBaseSimulator::GetRuntimeForTask(TaskID_t task_id) {
+  TraceTaskStats* task_stats = FindOrNull(task_stats_, task_id);
+  CHECK_NOTNULL(task_stats);
+  if (FLAGS_task_duration_oracle) {
+    // Use information from trace oracle
+    return task_stats->total_runtime_;
+  } else {
+    // We have no oracle from the trace, so try finding a final report.
+    // This will fail hard if the task has not yet finished.
+    return KnowledgeBase::GetRuntimeForTask(task_id);
+  }
 }
 
 void KnowledgeBaseSimulator::PopulateTaskFinalReport(TaskDescriptor* td_ptr,

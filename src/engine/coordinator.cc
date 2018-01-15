@@ -1,6 +1,23 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
+
 // Platform-independent coordinator class implementation. This is subclassed by
 // the platform-specific coordinator classes.
 
@@ -250,7 +267,7 @@ void Coordinator::Run() {
     // TODO(malte): wrap this in a timer
     cur_time = time_manager_->GetCurrentTimestamp();
     if (cur_time - last_heartbeat_time > FLAGS_heartbeat_interval) {
-      MachinePerfStatisticsSample stats;
+      ResourceStats stats;
       stats.set_timestamp(cur_time);
       stats.set_resource_id(to_string(machine_uuid_));
       machine_monitor_.CreateStatistics(&stats);
@@ -459,7 +476,7 @@ void Coordinator::HandleTaskHeartbeat(const TaskHeartbeatMessage& msg) {
     tdp->set_last_heartbeat_time(time_manager_->GetCurrentTimestamp());
     // Process the profiling information submitted by the task, add it to
     // the knowledge base
-    scheduler_->knowledge_base()->AddTaskSample(msg.stats());
+    scheduler_->knowledge_base()->AddTaskStatsSample(msg.stats());
   }
 
   // If we have a parent coordinator on whose behalf we are managing this task,
@@ -476,7 +493,7 @@ void Coordinator::HandleTaskHeartbeat(const TaskHeartbeatMessage& msg) {
       RegisterWithCoordinator(parent_chan_);
     }
   } else {
-    scheduler_->knowledge_base()->AddTaskSample(msg.stats());
+    scheduler_->knowledge_base()->AddTaskStatsSample(msg.stats());
   }
 }
 
@@ -822,8 +839,7 @@ void Coordinator::AddJobsTasksToTables(TaskDescriptor* td, JobID_t job_id) {
   }
 }
 
-void Coordinator::SendHeartbeatToParent(
-    const MachinePerfStatisticsSample& stats) {
+void Coordinator::SendHeartbeatToParent(const ResourceStats& stats) {
   BaseMessage bm;
   // TODO(malte): we do not always need to send the location string; it
   // sufficies to send it if our location changed (which should be rare).

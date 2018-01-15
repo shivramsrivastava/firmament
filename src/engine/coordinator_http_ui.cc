@@ -1,6 +1,22 @@
-// The Firmament project
-// Copyright (c) 2011-2012 Malte Schwarzkopf <malte.schwarzkopf@cl.cam.ac.uk>
-//
+/*
+ * Firmament
+ * Copyright (c) The Firmament Authors.
+ * All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
+ * LIMITATION ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR
+ * A PARTICULAR PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT.
+ *
+ * See the Apache Version 2.0 License for specific language governing
+ * permissions and limitations under the License.
+ */
 
 #include "engine/coordinator_http_ui.h"
 
@@ -13,8 +29,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/bind.hpp>
-#include <google/protobuf/text_format.h>
-#include <pb2json.h>
+#include <google/protobuf/util/json_util.h>
 
 #include "base/job_desc.pb.h"
 #include "engine/coordinator.h"
@@ -36,6 +51,8 @@ DECLARE_bool(debug_flow_graph);
 
 DEFINE_string(http_ui_template_dir, "src/webui",
               "Path to the directory where the web UI templates are located.");
+
+using google::protobuf::util::MessageToJsonString;
 
 namespace firmament {
 namespace webui {
@@ -143,7 +160,7 @@ void CoordinatorHTTPUI::HandleJobSubmitURI(
     const tcp::connection_ptr& tcp_conn) {
   LogRequest(http_request);
   // Check if we have a JobDescriptor as part of the POST parameters
-  string job_descriptor_param = http_request->get_query("test");
+  string job_descriptor_param = http_request->get_query("jd");
   if (http_request->get_method() != "POST" || job_descriptor_param.empty()) {
     ErrorResponse(http::types::RESPONSE_CODE_SERVER_ERROR, http_request,
                   tcp_conn);
@@ -151,10 +168,10 @@ void CoordinatorHTTPUI::HandleJobSubmitURI(
   }
   // We're okay to continue
   http::response_writer_ptr writer = InitOkResponse(http_request, tcp_conn);
-  // Submit the JD to the coordinator
   JobDescriptor job_descriptor;
-  google::protobuf::TextFormat::ParseFromString(job_descriptor_param,
-                                                &job_descriptor);
+  google::protobuf::util::JsonStringToMessage(job_descriptor_param,
+                                              &job_descriptor);
+  // Submit the JD to the coordinator
   VLOG(3) << "JD:" << job_descriptor.DebugString();
   string job_id = coordinator_->SubmitJob(job_descriptor);
   // Return the job ID to the client
@@ -371,8 +388,13 @@ void CoordinatorHTTPUI::HandleJobURI(const http::request_ptr& http_request,
   }
   AddFooterToTemplate(&dict);
   string output;
-  ExpandTemplate(FLAGS_http_ui_template_dir + "/job_status.tpl",
+  if (!http_request->get_query("json").empty()) {
+    ExpandTemplate(FLAGS_http_ui_template_dir + "/json_job_status.tpl",
+                   ctemplate::DO_NOT_STRIP, &dict, &output);
+  } else {
+    ExpandTemplate(FLAGS_http_ui_template_dir + "/job_status.tpl",
                  ctemplate::DO_NOT_STRIP, &dict, &output);
+  }
   writer->write(output);
   FinishOkResponse(writer);
 }
@@ -543,7 +565,8 @@ void CoordinatorHTTPUI::HandleResourcesTopologyURI(
   // Return serialized resource topology
   http::response_writer_ptr writer = InitOkResponse(http_request,
                                                 tcp_conn);
-  char *json = pb2json(root_rtnd);
+  string json;
+  CHECK(MessageToJsonString(root_rtnd, &json).ok());
   writer->write(json);
   FinishOkResponse(writer);
 }
@@ -606,7 +629,8 @@ void CoordinatorHTTPUI::HandleJobDTGURI(const http::request_ptr& http_request,
     // Return serialized DTG
     http::response_writer_ptr writer = InitOkResponse(http_request,
                                                       tcp_conn);
-    char *json = pb2json(*jd);
+    string json;
+    CHECK(MessageToJsonString(*jd, &json).ok());
     writer->write(json);
     FinishOkResponse(writer);
   } else {
@@ -814,18 +838,20 @@ void CoordinatorHTTPUI::HandleStatisticsURI(
   // Check if we have any statistics for this resource
   if (!res_id_str.empty()) {
     ResourceID_t res_id = ResourceIDFromString(res_id_str);
-    const deque<MachinePerfStatisticsSample> result =
+    const deque<ResourceStats> result =
       coordinator_->scheduler()->knowledge_base()->GetStatsForMachine(res_id);
     if (coordinator_->GetResourceTreeNode(res_id)) {
       int64_t length = static_cast<int64_t>(result.size());
       output += "[";
-      for (deque<MachinePerfStatisticsSample>::const_iterator it =
+      for (deque<ResourceStats>::const_iterator it =
              result.begin() + max(0LL, length - WEBUI_PERF_QUEUE_LEN);
           it != result.end();
           ++it) {
         if (output != "[")
           output += ", ";
-        output += pb2json(*it);
+        string json;
+        CHECK(MessageToJsonString(*it, &json).ok());
+        output += json;
       }
       output += "]";
     } else {
@@ -843,19 +869,21 @@ void CoordinatorHTTPUI::HandleStatisticsURI(
       return;
     }
     output += "{ \"samples\": [";
-    const deque<TaskPerfStatisticsSample>* samples_result =
+    const deque<TaskStats>* samples_result =
       coordinator_->scheduler()->knowledge_base()->GetStatsForTask(
             TaskIDFromString(task_id_str));
     if (samples_result) {
       bool first = true;
       int64_t length = static_cast<int64_t>(samples_result->size());
-      for (deque<TaskPerfStatisticsSample>::const_iterator it =
+      for (deque<TaskStats>::const_iterator it =
              samples_result->begin() + max(0LL, length - WEBUI_PERF_QUEUE_LEN);
           it != samples_result->end();
           ++it) {
         if (!first)
           output += ", ";
-        output += pb2json(*it);
+        string json;
+        CHECK(MessageToJsonString(*it, &json).ok());
+        output += json;
         first = false;
       }
     }
@@ -872,7 +900,9 @@ void CoordinatorHTTPUI::HandleStatisticsURI(
           ++it) {
         if (!first)
           output += ", ";
-        output += pb2json(*it);
+        string json;
+        CHECK(MessageToJsonString(*it, &json).ok());
+        output += json;
         first = false;
       }
     }
@@ -890,7 +920,9 @@ void CoordinatorHTTPUI::HandleStatisticsURI(
           ++it) {
         if (!first)
           output += ", ";
-        output += pb2json(*it);
+        string json;
+        CHECK(MessageToJsonString(*it, &json).ok());
+        output += json;
         first = false;
       }
     }
@@ -1075,8 +1107,13 @@ void CoordinatorHTTPUI::HandleTaskURI(const http::request_ptr& http_request,
   }
   AddFooterToTemplate(&dict);
   string output;
-  ExpandTemplate(FLAGS_http_ui_template_dir + "/task_status.tpl",
-                 ctemplate::DO_NOT_STRIP, &dict, &output);
+  if (!http_request->get_query("json").empty()) {
+    ExpandTemplate(FLAGS_http_ui_template_dir + "/json_task_status.tpl",
+                   ctemplate::DO_NOT_STRIP, &dict, &output);
+  } else {
+    ExpandTemplate(FLAGS_http_ui_template_dir + "/task_status.tpl",
+                   ctemplate::DO_NOT_STRIP, &dict, &output);
+  }
   writer->write(output);
   FinishOkResponse(writer);
 }
