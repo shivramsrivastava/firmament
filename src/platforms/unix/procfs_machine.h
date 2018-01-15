@@ -80,7 +80,7 @@ class ProcFSMachine {
     errno = 0;             //reset errno
     fscanf(input, "%ju ", x);
     return errno;
-}
+  }
 
   vector<CPUStatistics_t> cpu_stats_;
   DiskStatistics_t disk_stats_;
