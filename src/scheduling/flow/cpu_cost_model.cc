@@ -188,6 +188,49 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
   return pref_ecs;
 }
 
+MachineECs_t* CpuCostModel::GetEquivClassToEquivClassesArcsNotPreferred(
+    EquivClass_t ec) {
+  // Seperated lists of preferred and nonpreferred machine EC IDs are 
+  // combined in a struct and returned.
+  vector<EquivClass_t>* machine_ecs = new vector<EquivClass_t>();
+  MachineECs_t* machine_ecs_struct = new MachineECs_t();
+  CostVector_t* task_resource_request = FindOrNull(ec_resource_requirement_, ec);
+  if (task_resource_request) {
+    const RepeatedPtrField<LabelSelector>* label_selectors =
+      FindOrNull(ec_to_label_selectors, ec);
+    CHECK_NOTNULL(label_selectors);
+    for (auto& ec_machines : ecs_for_machines_) {
+      ResourceStatus* rs = FindPtrOrNull(*resource_map_, ec_machines.first);
+      CHECK_NOTNULL(rs);
+      const ResourceDescriptor& rd = rs->topology_node().resource_desc();
+      CostVector_t available_resources;
+      available_resources.cpu_cores_ = static_cast<uint32_t>(rd.available_resources().cpu_cores());
+      available_resources.ram_cap_ = static_cast<uint32_t>(rd.available_resources().ram_cap());
+      ResourceID_t res_id = ResourceIDFromString(rd.uuid());
+      vector<EquivClass_t>* ecs_for_machine =
+        FindOrNull(ecs_for_machines_, res_id);
+      CHECK_NOTNULL(ecs_for_machine);
+      if (scheduler::SatisfiesLabelSelectors(rd, *label_selectors)) {
+        // If machine satisfies affinity constraint, 
+        // then add it to preferred machine machine ECs.
+        machine_ecs = machine_ecs_struct->pref_ecs;
+      } else {
+        // If machine dosen't satisfies affinity constraint, 
+        // then add it to nonpreferred machine ECs.
+        machine_ecs = machine_ecs_struct->not_pref_ecs;
+      }
+      uint64_t index = 0;
+      CostVector_t cur_resource;
+      for (cur_resource = *task_resource_request;
+           cur_resource.cpu_cores_ <= available_resources.cpu_cores_ && cur_resource.ram_cap_ <= available_resources.ram_cap_ && index < ecs_for_machine->size();
+           cur_resource.cpu_cores_ += task_resource_request->cpu_cores_ , cur_resource.ram_cap_ += task_resource_request->ram_cap_, index++) {
+        machine_ecs->push_back(ec_machines.second[index]);
+      }
+    }
+  }
+  return machine_ecs_struct;
+}
+
 void CpuCostModel::AddMachine(
     ResourceTopologyNodeDescriptor* rtnd_ptr) {
   CHECK_NOTNULL(rtnd_ptr);

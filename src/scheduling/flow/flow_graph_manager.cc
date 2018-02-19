@@ -801,43 +801,133 @@ void FlowGraphManager::UpdateEquivToEquivArcs(
   CHECK_NOTNULL(ec_node);
   CHECK_NOTNULL(node_queue);
   CHECK_NOTNULL(marked_nodes);
-  vector<EquivClass_t>* pref_ec =
-    cost_model_->GetEquivClassToEquivClassesArcs(ec_node->ec_id_);
-  if (pref_ec) {
-    for (auto& pref_ec_id : *pref_ec) {
-      FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
-      if (!pref_ec_node) {
-        pref_ec_node = AddEquivClassNode(pref_ec_id);
+  // (TODO) : ShivramSrivastava
+  // Task descriptor should have info on soft or hard affinityconstriant, we need to fill 
+  // this in Poseidon side. As of now I use local variable as switch to decide soft or hard 
+  // constraint. For hard constraint, GetEquivClassToEquivClassesArcs() gets called. 
+  // And GetEquivClassToEquivClassesArcsNotPreferred() gets called for soft constraint.
+  bool soft = true, hard = true;
+  bool affinity_constraint_type = hard;
+  if (affinity_constraint_type == hard) {
+    vector<EquivClass_t>* pref_ec =
+      cost_model_->GetEquivClassToEquivClassesArcs(ec_node->ec_id_);
+    if (pref_ec) {
+      for (auto& pref_ec_id : *pref_ec) {
+        FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
+        if (!pref_ec_node) {
+          pref_ec_node = AddEquivClassNode(pref_ec_id);
+        }
+        ArcDescriptor arc_descriptor =
+          cost_model_->EquivClassToEquivClass(ec_node->ec_id_, pref_ec_id);
+        FlowGraphArc* pref_ec_arc =
+          graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
+                                                              pref_ec_node);
+        if (!pref_ec_arc) {
+          graph_change_manager_->AddArc(
+              ec_node, pref_ec_node, arc_descriptor.min_flow_,
+              arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
+              ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdateEquivClassNode");
+        } else {
+          graph_change_manager_->ChangeArc(
+              pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
+              arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
+              "UpdateEquivClassNode");
+        }
+        if (marked_nodes->find(pref_ec_node->id_) == marked_nodes->end()) {
+          // Add the EC node to the queue if it hasn't been marked yet.
+          marked_nodes->insert(pref_ec_node->id_);
+          node_queue->push(
+              new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+        }
       }
-      ArcDescriptor arc_descriptor =
-        cost_model_->EquivClassToEquivClass(ec_node->ec_id_, pref_ec_id);
-      FlowGraphArc* pref_ec_arc =
-        graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
-                                                            pref_ec_node);
-      if (!pref_ec_arc) {
-        graph_change_manager_->AddArc(
-            ec_node, pref_ec_node, arc_descriptor.min_flow_,
-            arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
-            ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdateEquivClassNode");
-      } else {
-        graph_change_manager_->ChangeArc(
-            pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
-            arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
-            "UpdateEquivClassNode");
-      }
-      if (marked_nodes->find(pref_ec_node->id_) == marked_nodes->end()) {
-        // Add the EC node to the queue if it hasn't been marked yet.
-        marked_nodes->insert(pref_ec_node->id_);
-        node_queue->push(
-            new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
-      }
+      RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+      delete pref_ec;
+    } else {
+      vector<EquivClass_t> no_pref_ec;
+      RemoveInvalidECPrefArcs(*ec_node, no_pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
     }
-    RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
-    delete pref_ec;
-  } else {
-    vector<EquivClass_t> no_pref_ec;
-    RemoveInvalidECPrefArcs(*ec_node, no_pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
-  }
+  } else if (affinity_constraint_type == soft) {
+      MachineECs_t* machine_ec_vectors = 
+      cost_model_->GetEquivClassToEquivClassesArcsNotPreferred(ec_node->ec_id_);
+      vector<EquivClass_t>* pref_ec = machine_ec_vectors->pref_ecs;
+      int64_t preferred_max_cost = 0;
+      if (pref_ec) {
+        for (auto& pref_ec_id : *pref_ec) {
+          FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
+          if (!pref_ec_node) {
+            pref_ec_node = AddEquivClassNode(pref_ec_id);
+          }
+          ArcDescriptor arc_descriptor =
+            cost_model_->EquivClassToEquivClass(ec_node->ec_id_, pref_ec_id);
+          if( arc_descriptor.cost_ > preferred_max_cost )
+           preferred_max_cost = arc_descriptor.cost_;
+          FlowGraphArc* pref_ec_arc =
+            graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
+                                                                pref_ec_node);
+          if (!pref_ec_arc) {
+            graph_change_manager_->AddArc(
+                ec_node, pref_ec_node, arc_descriptor.min_flow_,
+                arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
+                ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdateEquivClassNode");
+          } else {
+            graph_change_manager_->ChangeArc(
+                pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
+                arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
+                "UpdateEquivClassNode");
+          }
+          if (marked_nodes->find(pref_ec_node->id_) == marked_nodes->end()) {
+            // Add the EC node to the queue if it hasn't been marked yet.
+            marked_nodes->insert(pref_ec_node->id_);
+            node_queue->push(
+                new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+          }
+        }
+        RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+        delete pref_ec;
+      } else {
+        vector<EquivClass_t> no_pref_ec;
+        RemoveInvalidECPrefArcs(*ec_node, no_pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+      }
+      
+      vector<EquivClass_t>* not_pref_ecs = machine_ec_vectors->not_pref_ecs;
+      if (not_pref_ecs) {
+        for (auto& not_pref_ecs_id : *not_pref_ecs) {
+          FlowGraphNode* not_pref_ecs_node = NodeForEquivClass(not_pref_ecs_id);
+          if (!not_pref_ecs_node) {
+            not_pref_ecs_node = AddEquivClassNode(not_pref_ecs_id);
+          }
+          ArcDescriptor arc_descriptor =
+            cost_model_->EquivClassToEquivClass(ec_node->ec_id_, not_pref_ecs_id);
+          arc_descriptor.cost_ += preferred_max_cost;
+          FlowGraphArc* not_pref_ecs_arc =
+            graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
+                                                                not_pref_ecs_node);
+          if (!not_pref_ecs_arc) {
+             graph_change_manager_->AddArc(
+                ec_node, not_pref_ecs_node, arc_descriptor.min_flow_,
+                arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
+                ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdateEquivClassNode");
+          } else {
+            graph_change_manager_->ChangeArc(
+                not_pref_ecs_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
+                arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
+                "UpdateEquivClassNode");
+          }
+          if (marked_nodes->find(not_pref_ecs_node->id_) == marked_nodes->end()) {
+            // Add the EC node to the queue if it hasn't been marked yet.
+            marked_nodes->insert(not_pref_ecs_node->id_);
+            node_queue->push(
+                new TDOrNodeWrapper(not_pref_ecs_node, not_pref_ecs_node->td_ptr_));
+          }
+        }
+        RemoveInvalidECPrefArcs(*ec_node, *not_pref_ecs, DEL_ARC_BETWEEN_EQUIV_CLASS);
+        delete not_pref_ecs;
+      } else {
+        vector<EquivClass_t> no_not_pref_ecs;
+        RemoveInvalidECPrefArcs(*ec_node, no_not_pref_ecs, DEL_ARC_BETWEEN_EQUIV_CLASS);
+      }
+      delete machine_ec_vectors;
+  }   
 }
 
 void FlowGraphManager::UpdateEquivToResArcs(

@@ -37,6 +37,12 @@ namespace firmament {
 
 typedef int64_t Cost_t;
 
+typedef struct machine_ecs {
+  vector<EquivClass_t>* pref_ecs;
+  vector<EquivClass_t>* not_pref_ecs;
+}MachineECs_t;
+
+
 // List of cost models supported
 enum CostModelType {
   COST_MODEL_TRIVIAL = 0,
@@ -169,6 +175,16 @@ class CostModelInterface {
   virtual vector<EquivClass_t>* GetEquivClassToEquivClassesArcs(
       EquivClass_t tec) = 0;
 
+  /**
+   * Get equivalence classes to which the outgoing arcs of an equivalence class
+   * are pointing to.
+   * @return a vectors of equivalence classes to which we have an outgoing arc.
+   */
+  virtual MachineECs_t* GetEquivClassToEquivClassesArcsNotPreferred(
+      EquivClass_t tec) {
+    return NULL;
+  }
+   
   /**
    * Called by the flow_graph when a machine is added.
    */

@@ -63,6 +63,7 @@ class CpuCostModel : public CostModelInterface {
   vector<ResourceID_t>* GetOutgoingEquivClassPrefArcs(EquivClass_t tec);
   vector<ResourceID_t>* GetTaskPreferenceArcs(TaskID_t task_id);
   vector<EquivClass_t>* GetEquivClassToEquivClassesArcs(EquivClass_t tec);
+  MachineECs_t* GetEquivClassToEquivClassesArcsNotPreferred(EquivClass_t tec);
   void AddMachine(ResourceTopologyNodeDescriptor* rtnd_ptr);
   void AddTask(TaskID_t task_id);
   void RemoveMachine(ResourceID_t res_id);
