@@ -213,9 +213,6 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
             max_min_priority_scores->pod_affinity_priority.max_score;
         int64_t min_score =
             max_min_priority_scores->pod_affinity_priority.min_score;
-        LOG(INFO) << "machine=" << rd.friendly_name();
-        LOG(INFO) << "Max: " << max_score << ", Min: " << min_score
-                  << ", Actual score: " << pod_affinity_score.score;
         if ((max_score - min_score) > 0) {
           pod_affinity_normalized_score =
               ((pod_affinity_score.score - min_score) /
@@ -399,7 +396,6 @@ bool CpuCostModel::MatchExpressionWithPodLabels(
         for (auto task_id : *labels_map_tasks) {
           TaskDescriptor* tdp = FindPtrOrNull(*task_map_, task_id);
           if (tdp) {
-            LOG(INFO) << "target pod namespace=" << tdp->task_namespace();
             if (!HasNamespace(tdp->task_namespace())) continue;
             if (tdp->state() == TaskDescriptor::RUNNING) {
               ResourceID_t pu_res_id =
@@ -699,10 +695,6 @@ void CpuCostModel::CalculatePodAffinityAntiAffinityPreference(
         }
       }
     }
-    LOG(INFO) << "SatisfiesPodAffinityAntiAffinityPreferred: machine="
-              << rd.friendly_name();
-    LOG(INFO) << "SatisfiesPodAffinityAntiAffinityPreferred: sum_of_weights="
-              << sum_of_weights;
     unordered_map<ResourceID_t, PriorityScoresList_t,
                   boost::hash<boost::uuids::uuid>>* nodes_priority_scores_ptr =
         FindOrNull(ec_to_node_priority_scores, ec);

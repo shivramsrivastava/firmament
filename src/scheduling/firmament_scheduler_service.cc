@@ -142,9 +142,9 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     vector<SchedulingDelta> deltas;
     scheduler_->ScheduleAllJobs(&sstat, &deltas);
     // Extract results
-    //if (deltas.size()) {
+    if (deltas.size()) {
       LOG(INFO) << "Got " << deltas.size() << " scheduling deltas";
-    //}
+    }
 
     // Schedule tasks having pod affinity/anti-affinity
     chrono::high_resolution_clock::time_point start =
@@ -153,20 +153,15 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         chrono::duration_values<unsigned int>::zero());
     while (affinity_antiaffinity_tasks_.size() &&
            (time_spent.count() < FLAGS_queue_based_scheduling_time)) {
-      LOG(INFO) << "QueueBasedSchedule: In while loop, "
-                   "affinity_antiaffinity_tasks_.size = "
-                << affinity_antiaffinity_tasks_.size();
       scheduler_->ScheduleAllQueueJobs(&sstat, &deltas);
       chrono::high_resolution_clock::time_point end =
           chrono::high_resolution_clock::now();
       time_spent = chrono::duration_cast<chrono::seconds>(end - start);
-      // LOG(INFO) << "QueueBasedSchedule: time_spent count = " <<
-      // time_spent.count();
     }
-    // if(deltas.size()) {
-    LOG(INFO) << "QueueBasedSchedule: Got " << deltas.size()
+    if(deltas.size()) {
+      LOG(INFO) << "QueueBasedSchedule: Got " << deltas.size()
               << " scheduling deltas";
-    //}
+    }
 
     for (auto& d : deltas) {
       // LOG(INFO) << "Delta: " << d.DebugString();
@@ -328,8 +323,6 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   void AddTaskToLabelsMap(const TaskDescriptor& td) {
     TaskID_t task_id = td.uid();
     for (const auto& label : td.labels()) {
-      LOG(INFO) << "AddTaskToLabelsMap: key=" << label.key()
-                << " value=" << label.value();
       unordered_map<string, vector<TaskID_t>>* label_values =
           FindOrNull(labels_map_, label.key());
       if (!label_values) {
@@ -371,7 +364,6 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(TaskReplyType::TASK_STATE_NOT_CREATED);
       return Status::OK;
     }
-    LOG(INFO) << "TaskSubmitted: task_id=" << task_id << " namespace=" << task_desc_ptr->task_descriptor().task_namespace();
     AddTaskToLabelsMap(task_desc_ptr->task_descriptor());
     JobID_t job_id = JobIDFromString(task_desc_ptr->task_descriptor().job_id());
     JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);

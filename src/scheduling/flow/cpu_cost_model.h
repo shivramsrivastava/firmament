@@ -43,7 +43,7 @@ struct CpuMemCostVector_t {
   uint64_t node_affinity_soft_cost_;
   uint64_t pod_affinity_soft_cost_;
   CpuMemCostVector_t()
-      : cpu_mem_cost_(0), balanced_res_cost_(0), node_affinity_soft_cost_(0) {}
+      : cpu_mem_cost_(0), balanced_res_cost_(0), node_affinity_soft_cost_(0), pod_affinity_soft_cost_(0) {}
 };
 
 struct CpuMemResVector_t {
@@ -177,10 +177,8 @@ class CpuCostModel : public CostModelInterface {
   }
   inline bool HasNamespace(const string name) {
     if (namespaces.find(name) == namespaces.end()) {
-      LOG(INFO) << "Namespace=" << name << " not found!";
       return false;
     } else {
-      LOG(INFO) << "Namespace=" << name << " found!";
       return true;
     }
   }
