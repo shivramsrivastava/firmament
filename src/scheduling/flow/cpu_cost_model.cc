@@ -295,6 +295,7 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
 
 	taints_score.final_score = 0;
      }
+  
   cost_vector.node_affinity_soft_cost_ =
       omega_ - node_affinity_normalized_score;
   cost_vector.pod_affinity_soft_cost_ = omega_ - pod_affinity_normalized_score;
@@ -414,7 +415,7 @@ vector<EquivClass_t>* CpuCostModel::GetTaskEquivClasses(TaskID_t task_id) {
   CHECK_NOTNULL(task_resource_request);
   size_t task_agg = 0;
   bool pod_antiaffinity_symmetry = false;
-  if (td_ptr->has_affinity() || td_ptr->tolerations_size()) {
+  if (td_ptr->has_affinity() || (td_ptr->tolerations_size() > DEFAULT_TOLERATIONS)) {
     // For tasks which has affinity requirements, we hash the job id.
     // TODO(jagadish): This hash has to be handled in an efficient way in
     // future.
@@ -572,7 +573,7 @@ void CpuCostModel::CalculateIntolerableTaintsCost(const ResourceDescriptor& rd,
                                }
 
                         }
-               else if (tolerations.operator_() == "Equal"){
+               else if ((tolerations.operator_() == "Equal") || (tolerations.operator_() == "")){
 
                                InsertIfNotPresent(&tolerationSoftEqualMap,tolerations.key(),tolerations.value());
 
