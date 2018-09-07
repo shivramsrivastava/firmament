@@ -1413,7 +1413,8 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
       CHECK_NOTNULL(ecs_for_machine);
       uint64_t index = 0;
       CpuMemResVector_t cur_resource;
-      uint64_t task_count = rd.num_running_tasks_below();
+      uint64_t task_count = rd.num_running_tasks_below() +
+          knowledge_base_->GetResourceNonFirmamentTaskCount(res_id);
       //TODO(dujun) : FLAGS_max_tasks_per_pu is treated as equivalent to max-pods,
       // as max-pods functionality is not yet merged at this point.
       for (cur_resource = *task_resource_request;
