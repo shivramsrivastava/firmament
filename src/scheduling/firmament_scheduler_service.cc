@@ -163,6 +163,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                   SchedulingDeltas* reply) override {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
+    LOG(INFO) << "Schedule request called ";
     SchedulerStats sstat;
     vector<SchedulingDelta> deltas;
     scheduler_->ScheduleAllJobs(&sstat, &deltas);
@@ -176,9 +177,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       elapsed = (double)(stop - start) * 1000.0 / CLOCKS_PER_SEC;
     }
     // Extract results
-    if (deltas.size()) {
       LOG(INFO) << "Got " << deltas.size() << " scheduling deltas";
-    }
     for (auto& d : deltas) {
       // LOG(INFO) << "Delta: " << d.DebugString();
       SchedulingDelta* ret_delta = reply->add_deltas();
@@ -234,6 +233,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   Status TaskCompleted(ServerContext* context, const TaskUID* tid_ptr,
                        TaskCompletedResponse* reply) override {
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
+    LOG(INFO) << "TaskCompleted : " << td_ptr->name() << "ID: " << td_ptr->uid();
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
       return Status::OK;
@@ -271,6 +271,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   Status TaskFailed(ServerContext* context, const TaskUID* tid_ptr,
                     TaskFailedResponse* reply) override {
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
+    LOG(INFO) << "TaskFailed : " << td_ptr->name() << "ID: " << td_ptr->uid();
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
       return Status::OK;
@@ -291,6 +292,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
+    LOG(INFO) << "TaskRemoved : " << td_ptr->name() << "ID: " << td_ptr->uid();
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
       return Status::OK;
@@ -370,6 +372,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
     TaskID_t task_id = task_desc_ptr->task_descriptor().uid();
+    LOG(INFO) << "Task submitted " << task_desc_ptr->task_descriptor().name() << ", id: " << task_id; 
     if (FindPtrOrNull(*task_map_, task_id)) {
       reply->set_type(TaskReplyType::TASK_ALREADY_SUBMITTED);
       return Status::OK;
@@ -386,6 +389,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                                task_desc_ptr->job_descriptor()));
       jd_ptr = FindOrNull(*job_map_, job_id);
       TaskDescriptor* root_td_ptr = jd_ptr->mutable_root_task();
+      root_td_ptr->CopyFrom(task_desc_ptr->task_descriptor());
       CHECK(
           InsertIfNotPresent(task_map_.get(), root_td_ptr->uid(), root_td_ptr));
       root_td_ptr->set_submit_time(wall_time_.GetCurrentTimestamp());

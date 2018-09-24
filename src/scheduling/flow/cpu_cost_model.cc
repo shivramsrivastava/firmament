@@ -446,6 +446,8 @@ vector<EquivClass_t>* CpuCostModel::GetTaskEquivClasses(TaskID_t task_id) {
   if (pod_antiaffinity_symmetry) {
     ecs_with_pod_antiaffinity_symmetry_.insert(resource_request_ec);
   }
+  LOG(INFO) << "Task ID: " << task_id << ": Task EC ID: " << resource_request_ec;
+  LOG(INFO) << "Task pod name"<< td_ptr->name()<< td_ptr->task_namespace()<<endl;
   return ecs;
 }
 
@@ -1347,7 +1349,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
   vector<EquivClass_t>* pref_ecs = new vector<EquivClass_t>();
   CpuMemResVector_t* task_resource_request =
       FindOrNull(ec_resource_requirement_, ec);
+  LOG(INFO) << "GetEquivClassToEquivClassesArcs entred";
   if (task_resource_request) {
+     LOG(INFO) << "GetEquivClassToEquivClassesArcs entered task_resource_request if block";
     // Clear priority scores for node affinity and pod affinity.
     // TODO(jagadish): Currently we clear old affinity scores, and restore new
     // scores. But we are not clearing it just after scheduling round completed,
@@ -1362,22 +1366,30 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
       const ResourceDescriptor& rd = rs->topology_node().resource_desc();
       const TaskDescriptor* td_ptr = FindOrNull(ec_to_td_requirements, ec);
       if (td_ptr) {
+        LOG(INFO) << "Start checking scheduling contraints against machine " << rd.friendly_name();
         // Checking whether machine satisfies node selector and node affinity.
         if (scheduler::SatisfiesNodeSelectorAndNodeAffinity(rd, *td_ptr)) {
           // Calculate costs for all priorities.
           CalculatePrioritiesCost(ec, rd);
-        } else
+        } else {
+          LOG(INFO) << "NodeSelector or node affinty matching failed for task EC"
+                    << " against machine " << rd.friendly_name();
           continue;
+        }
         // Checking pod affinity/anti-affinity
         if (SatisfiesPodAffinityAntiAffinityRequired(rd, *td_ptr, ec)) {
           CalculatePodAffinityAntiAffinityPreference(rd, *td_ptr, ec);
         } else {
+          LOG(INFO) << "Pod affinity and anti-affinty matching failed for task EC" << ec
+                    << " against machine " << rd.friendly_name();
           continue;
         }
 		//Check whether taints in the machine has matching tolerations
 		if (scheduler::HasMatchingTolerationforNodeTaints(rd, *td_ptr)) {
 		  CalculateIntolerableTaintsCost(rd, td_ptr, ec);
 		}else {
+                 LOG(INFO) << "Matching tolerations for node taints failed for task EC " << ec
+                    << " against machine " << rd.friendly_name();
                  continue;
         }
 		// Checking costs for intolerable taints
@@ -1388,6 +1400,8 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
             if (SatisfiesPodAntiAffinitySymmetry(ResourceIDFromString(rd.uuid()), *td_ptr)) {
               //Calculate soft constriants score if needed.
             } else {
+              LOG(INFO) << "Pod anti affinty symmetry failed for task EC" << ec
+                        << " against machine " << rd.friendly_name();
               continue;
             }
           }
@@ -1415,6 +1429,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
           cur_resource.ram_cap_ += task_resource_request->ram_cap_, index++, task_count++) {
         pref_ecs->push_back(ec_machines.second[index]);
       }
+      LOG(INFO) << "Number of arcs that will be drawn from task EC " << ec
+                << " to machine ECs of machine " << rd.friendly_name() 
+                << "is " << pref_ecs->size();
     }
   }
   return pref_ecs;

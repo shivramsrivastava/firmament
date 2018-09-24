@@ -107,6 +107,7 @@ FlowScheduler::FlowScheduler(
                       boost::hash<boost::uuids::uuid>>),
       dimacs_stats_(new DIMACSChangeStats),
       solver_run_cnt_(0) {
+  queue_based_schedule = false;
   // Select the cost model to use
   VLOG(1) << "Set cost model to use in flow graph to \""
           << FLAGS_flow_scheduling_cost_model << "\"";
@@ -492,8 +493,11 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
   vector<JobDescriptor*> jobs;
   //Pod affinity/anti-affinity
   one_task_runnable = false;
+  LOG(INFO) << "Size of jobs : " << jobs_to_schedule_.size();
   for (auto& job_id_jd : jobs_to_schedule_) {
     const TaskDescriptor& td = job_id_jd.second->root_task();
+    cout << "queue_based_schedule: " << queue_based_schedule << "\n";
+    LOG(INFO) << "queue_based_schedule: " << queue_based_schedule << ", Affinity: " << td.has_affinity() << ", Pod Affinity: " << td.affinity().has_pod_affinity() << " , pod anti affinity: " << td.affinity().has_pod_anti_affinity(); 
     if (queue_based_schedule) {
       if (!(td.has_affinity() && (td.affinity().has_pod_affinity() ||
           td.affinity().has_pod_anti_affinity()))) {
@@ -505,8 +509,11 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
         continue;
       }
     }
+    LOG(INFO) << "About to call ComputeRunnableTasksForJob ";
     if (ComputeRunnableTasksForJob(job_id_jd.second).size() > 0) {
       jobs.push_back(job_id_jd.second);
+    } else {
+      LOG(INFO) << "ComputeRunnableTasksForJob returned " << ComputeRunnableTasksForJob(job_id_jd.second).size();
     }
   }
   uint64_t num_scheduled_tasks = ScheduleJobs(jobs, scheduler_stats, deltas);

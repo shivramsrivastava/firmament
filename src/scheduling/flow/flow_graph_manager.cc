@@ -824,6 +824,7 @@ void FlowGraphManager::UpdateEquivToEquivArcs(
   CHECK_NOTNULL(ec_node);
   CHECK_NOTNULL(node_queue);
   CHECK_NOTNULL(marked_nodes);
+  LOG(INFO) << "UpdateEquivToEquivArcs";
   vector<EquivClass_t>* pref_ec =
     cost_model_->GetEquivClassToEquivClassesArcs(ec_node->ec_id_);
   if (pref_ec) {
