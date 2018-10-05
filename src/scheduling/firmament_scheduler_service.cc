@@ -180,6 +180,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                   SchedulingDeltas* reply) override {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
+    VLOG(2) << "Schedule request called.";
     // Clear unscheduled tasks related maps and sets of previous scheduling
     // round.
     if (FLAGS_gather_unscheduled_tasks) {
@@ -304,6 +305,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
 
   Status TaskCompleted(ServerContext* context, const TaskUID* tid_ptr,
                        TaskCompletedResponse* reply) override {
+    VLOG(2) << "TaskCompleted called for task " << tid_ptr->task_uid();
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
@@ -341,6 +343,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
 
   Status TaskFailed(ServerContext* context, const TaskUID* tid_ptr,
                     TaskFailedResponse* reply) override {
+    VLOG(2) << "TaskFailed called for task " << tid_ptr->task_uid();
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
@@ -360,6 +363,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                      TaskRemovedResponse* reply) override {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
+    VLOG(2) << "TaskRemoved called for task " << tid_ptr->task_uid();
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, tid_ptr->task_uid());
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
@@ -440,6 +444,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
     TaskID_t task_id = task_desc_ptr->task_descriptor().uid();
+    VLOG(2) << "TaskSubmitted called for task " << task_id;
     if (FindPtrOrNull(*task_map_, task_id)) {
       reply->set_type(TaskReplyType::TASK_ALREADY_SUBMITTED);
       return Status::OK;
@@ -488,6 +493,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                      const TaskDescription* task_desc_ptr,
                      TaskUpdatedResponse* reply) override {
     TaskID_t task_id = task_desc_ptr->task_descriptor().uid();
+    VLOG(2) << "TaskUpdated called for task " << task_id;
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
@@ -532,6 +538,9 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                    NodeAddedResponse* reply) override {
     boost::lock_guard<boost::recursive_mutex> lock(
         scheduler_->scheduling_lock_);
+    VLOG(2) << "NodeAdded called for node "
+            << ResourceIDFromString(
+                   submitted_rtnd_ptr->resource_desc().uuid());
     bool doesnt_exist = DFSTraverseResourceProtobufTreeWhileTrue(
         *submitted_rtnd_ptr,
         boost::bind(&FirmamentSchedulerServiceImpl::CheckResourceDoesntExist,
@@ -597,6 +606,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   Status NodeFailed(ServerContext* context, const ResourceUID* rid_ptr,
                     NodeFailedResponse* reply) override {
     ResourceID_t res_id = ResourceIDFromString(rid_ptr->resource_uid());
+    VLOG(2) << "NodeFailed called for node " << res_id;
     ResourceStatus* rs_ptr = FindPtrOrNull(*resource_map_, res_id);
     if (rs_ptr == NULL) {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);
@@ -610,6 +620,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   Status NodeRemoved(ServerContext* context, const ResourceUID* rid_ptr,
                      NodeRemovedResponse* reply) override {
     ResourceID_t res_id = ResourceIDFromString(rid_ptr->resource_uid());
+    VLOG(2) << "NodeRemoved called for node " << res_id;
     ResourceStatus* rs_ptr = FindPtrOrNull(*resource_map_, res_id);
     if (rs_ptr == NULL) {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);
@@ -625,6 +636,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                      NodeUpdatedResponse* reply) override {
     ResourceID_t res_id =
         ResourceIDFromString(updated_rtnd_ptr->resource_desc().uuid());
+    VLOG(2) << "NodeUpdated called for node " << res_id;
     ResourceStatus* rs_ptr = FindPtrOrNull(*resource_map_, res_id);
     if (rs_ptr == NULL) {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);
@@ -668,6 +680,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   Status AddTaskStats(ServerContext* context, const TaskStats* task_stats,
                       TaskStatsResponse* reply) override {
     TaskID_t task_id = task_stats->task_id();
+    VLOG(2) << "AddTaskStats called for task " << task_id;
     TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
     if (td_ptr == NULL) {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
@@ -681,6 +694,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                       const ResourceStats* resource_stats,
                       ResourceStatsResponse* reply) override {
     ResourceID_t res_id = ResourceIDFromString(resource_stats->resource_id());
+    VLOG(2) << "AddNodeStats called for node " << res_id;
     ResourceStatus* rs_ptr = FindPtrOrNull(*resource_map_, res_id);
     if (rs_ptr == NULL || rs_ptr->mutable_descriptor() == NULL) {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);

@@ -1175,7 +1175,11 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
   vector<EquivClass_t>* pref_ec =
     cost_model_->GetTaskEquivClasses(task_node->td_ptr_->uid());
   if (pref_ec) {
+    string pref_ecs_list_string;
     for (auto& pref_ec_id : *pref_ec) {
+      if (VLOG_IS_ON(2)) {
+        pref_ecs_list_string += to_string(pref_ec_id) + " ";
+      }
       FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
       if (!pref_ec_node) {
         pref_ec_node = AddEquivClassNode(pref_ec_id);
@@ -1204,6 +1208,11 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
         node_queue->push(
             new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
       }
+    }
+    if (VLOG_IS_ON(2)) {
+      LOG(INFO) << "DEBUG_SCHEDULING_CONSTRAINTS: Task "
+                << task_node->td_ptr_->uid() << " is connected to Task ECs : "
+                << pref_ecs_list_string;
     }
     RemoveInvalidECPrefArcs(*task_node, *pref_ec, DEL_ARC_TASK_TO_EQUIV_CLASS);
     delete pref_ec;

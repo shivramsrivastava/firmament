@@ -50,7 +50,7 @@ class CpuCostModelTest : public ::testing::Test {
     task_map_.reset(new TaskMap_t);
     knowledge_base_.reset(new KnowledgeBase);
     cost_model =
-        new CpuCostModel(resource_map_, task_map_, knowledge_base_, NULL);
+        new CpuCostModel(resource_map_, NULL, task_map_, knowledge_base_, NULL);
   }
 
   virtual ~CpuCostModelTest() {

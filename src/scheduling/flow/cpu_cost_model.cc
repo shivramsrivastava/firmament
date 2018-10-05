@@ -39,10 +39,13 @@ DECLARE_bool(pod_affinity_antiaffinity_symmetry);
 namespace firmament {
 
 CpuCostModel::CpuCostModel(
-    shared_ptr<ResourceMap_t> resource_map, shared_ptr<TaskMap_t> task_map,
+    shared_ptr<ResourceMap_t> resource_map,
+    const ResourceTopologyNodeDescriptor* const resource_topology,
+    shared_ptr<TaskMap_t> task_map,
     shared_ptr<KnowledgeBase> knowledge_base,
     unordered_map<string, unordered_map<string, vector<TaskID_t>>>* labels_map)
     : resource_map_(resource_map),
+      resource_topology_(*resource_topology),
       task_map_(task_map),
       knowledge_base_(knowledge_base),
       labels_map_(labels_map) {
@@ -72,6 +75,49 @@ void CpuCostModel::ClearUnscheduledTasksData() {
   task_ec_to_connected_tasks_set_.clear();
   task_ec_with_no_pref_arcs_.clear();
   task_ec_with_no_pref_arcs_set_.clear();
+}
+
+const string CpuCostModel::DebugInfoCSV() const {
+  string out;
+  string comma = ",";
+  out += "Uid"+ comma;
+  out += "NameofResourceNode" + comma;
+  out += "TypeOfResource" + comma;
+  out += "NoOfRunningTasksBelow" + comma;
+  out += "CpuCapacity" + comma;
+  out += "MemCapacity" + comma;
+  out += "CpuAvailability" + comma;
+  out += "MemAvailability" + comma;
+  out += "\n";
+  ResourceStatus* root_rs =
+    FindPtrOrNull(*resource_map_,
+                  ResourceIDFromString(
+                    resource_topology_.resource_desc().uuid()));
+  CHECK_NOTNULL(root_rs);
+  ResourceTopologyNodeDescriptor* root_rtnd =
+    root_rs->mutable_topology_node();
+  queue<ResourceTopologyNodeDescriptor*> to_visit;
+  to_visit.push(root_rtnd);
+  while (!to_visit.empty()) {
+    ResourceTopologyNodeDescriptor* res_node_desc = to_visit.front();
+    CHECK_NOTNULL(res_node_desc);
+    to_visit.pop();
+    const ResourceDescriptor rd = res_node_desc->resource_desc();
+    out += rd.uuid() + ",";
+    out += rd.friendly_name() + ",";
+    out += to_string(rd.type()) + ",";
+    out += to_string(rd.num_running_tasks_below()) + ",";
+    out += ResourceVectorToString(rd.resource_capacity(), ",") + ",";
+    out += ResourceVectorToString(rd.available_resources(), ",") + ",";
+    out += "\n";
+    for (auto rtnd_iter =
+         res_node_desc->mutable_children()->pointer_begin();
+         rtnd_iter != res_node_desc->mutable_children()->pointer_end();
+         ++rtnd_iter) {
+      to_visit.push(*rtnd_iter);
+    }
+  }
+  return out;
 }
 
 // Events support for firmament.
@@ -1415,18 +1461,29 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
         if (scheduler::SatisfiesNodeSelectorAndNodeAffinity(rd, *td_ptr)) {
           // Calculate costs for all priorities.
           CalculatePrioritiesCost(ec, rd);
-        } else
+        } else {
+          VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                  << ec << ", machine " << rd.friendly_name()
+                  << " doesn't satisfy NodeSelector or NodeAffinty.";
           continue;
+        }
         // Checking pod affinity/anti-affinity
         if (SatisfiesPodAffinityAntiAffinityRequired(rd, *td_ptr, ec)) {
           CalculatePodAffinityAntiAffinityPreference(rd, *td_ptr, ec);
         } else {
+          VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                  << ec << ", machine " << rd.friendly_name()
+                  << " doesn't satisfy PodAffinity or PodAntiAffinity.";
           continue;
         }
         // Check whether taints in the machine has matching tolerations
         if (scheduler::HasMatchingTolerationforNodeTaints(rd, *td_ptr)) {
           CalculateIntolerableTaintsCost(rd, td_ptr, ec);
         } else {
+          VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                  << ec << ", machine " << rd.friendly_name()
+                  << " was rejected because machine has taints for which task"
+                  << " doesn't have matching tolerations.";
           continue;
         }
         // Checking costs for intolerable taints
@@ -1440,6 +1497,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
                     ResourceIDFromString(rd.uuid()), *td_ptr)) {
               // Calculate soft constriants score if needed.
             } else {
+              VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                      << ec << ", machine " << rd.friendly_name()
+                      << " doesn't satisfy pod anti affinty symmetry";
               continue;
             }
           }
@@ -1472,6 +1532,18 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
           index++, task_count++) {
         pref_ecs->push_back(ec_machines.second[index]);
       }
+      if (index > 0) {
+        VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                << ec << ", machine " << rd.friendly_name() << " was selected.";
+      } else {
+        VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC "
+                << ec << ", machine " << rd.friendly_name()
+                << " does not have enough cpu/mem or max pods limit reached.";
+      }
+    }
+    if (pref_ecs->size() == 0) {
+      VLOG(2) << "DEBUG_SCHEDULING_CONSTRAINTS: For Task EC " << ec
+              << " none of the machines were selected.";
     }
     if (FLAGS_gather_unscheduled_tasks) {
       if (pref_ecs->size() == 0) {
@@ -1618,6 +1690,20 @@ void CpuCostModel::PrepareStats(FlowGraphNode* accumulator) {
 FlowGraphNode* CpuCostModel::UpdateStats(FlowGraphNode* accumulator,
                                          FlowGraphNode* other) {
   return accumulator;
+}
+
+void CpuCostModel::PrintCostVector(CpuMemResVector_t cv) {
+  LOG(INFO) << "  CPU: " << cv.cpu_cores_ << ", ";
+  LOG(INFO) << "  RAM: " << cv.ram_cap_ << ", ";
+}
+
+string CpuCostModel::ResourceVectorToString(
+    const ResourceVector& rv,
+    const string& delimiter) const {
+  stringstream out;
+  out << rv.cpu_cores() << delimiter;
+  out << rv.ram_cap();
+  return out.str();
 }
 
 ResourceID_t CpuCostModel::MachineResIDForResource(ResourceID_t res_id) {

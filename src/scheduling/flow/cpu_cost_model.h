@@ -86,10 +86,12 @@ struct PriorityScoresList_t {
 class CpuCostModel : public CostModelInterface {
  public:
   CpuCostModel(shared_ptr<ResourceMap_t> resource_map,
+               const ResourceTopologyNodeDescriptor* const resource_topology,
                shared_ptr<TaskMap_t> task_map,
                shared_ptr<KnowledgeBase> knowledge_base,
                unordered_map<string, unordered_map<string, vector<TaskID_t>>>*
                    labels_map);
+  const string DebugInfoCSV() const;
   // Costs pertaining to leaving tasks unscheduled
   ArcDescriptor TaskToUnscheduledAgg(TaskID_t task_id);
   ArcDescriptor UnscheduledAggToSink(JobID_t job_id);
@@ -230,6 +232,11 @@ class CpuCostModel : public CostModelInterface {
   Cost_t FlattenCostVector(CpuMemCostVector_t cv);
   EquivClass_t GetMachineEC(const string& machine_name, uint64_t ec_index);
   ResourceID_t MachineResIDForResource(ResourceID_t res_id);
+  void PrintCostVector(CpuMemResVector_t cv);
+  // Get a delimited string representing a resource vector
+  string ResourceVectorToString(const ResourceVector& rv,
+                                const string& delimiter) const;
+  // Count how many times a task with resource request req fits into
   inline const TaskDescriptor& GetTask(TaskID_t task_id) {
     TaskDescriptor* td = FindPtrOrNull(*task_map_, task_id);
     CHECK_NOTNULL(td);
@@ -244,6 +251,7 @@ class CpuCostModel : public CostModelInterface {
   }
 
   shared_ptr<ResourceMap_t> resource_map_;
+  const ResourceTopologyNodeDescriptor& resource_topology_;
   // The task map used in the rest of the system
   shared_ptr<TaskMap_t> task_map_;
   // A knowledge base instance that we will refer to for job runtime statistics.

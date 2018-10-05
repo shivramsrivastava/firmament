@@ -157,7 +157,8 @@ FlowScheduler::FlowScheduler(
       break;
     case CostModelType::COST_MODEL_CPU:
       cost_model_ = 
-          new CpuCostModel(resource_map, task_map, knowledge_base, labels_map);
+          new CpuCostModel(resource_map, resource_topology, task_map,
+                           knowledge_base, labels_map);
       VLOG(1) << "Using the cpu cost model";
       break;
     case CostModelType::COST_MODEL_QUINCY_INTERFERENCE:
