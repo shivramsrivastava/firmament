@@ -16,6 +16,8 @@ set(BASE_PROTOBUFS
   base/pod_anti_affinity.proto
   base/reference_desc.proto
   base/taints.proto
+  base/owner_reference.proto
+  base/avoid_pods.proto
   base/resource_desc.proto
   base/resource_stats.proto
   base/resource_topology_node_desc.proto

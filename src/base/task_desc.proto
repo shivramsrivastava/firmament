@@ -14,6 +14,7 @@ import "base/resource_vector.proto";
 import "base/task_final_report.proto";
 import "base/affinity.proto";
 import "base/tolerations.proto";
+import "base/owner_reference.proto";
 
 message TaskDescriptor {
   enum TaskState {
@@ -94,4 +95,5 @@ message TaskDescriptor {
   string task_namespace = 35;
   // Tolerations
   repeated Toleration tolerations = 36;
+  OwnerReference pod_owner_ref = 37;
 }

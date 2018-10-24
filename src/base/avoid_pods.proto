@@ -1,0 +1,68 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+syntax = "proto3";
+
+package firmament;
+
+import "base/owner_reference.proto";
+
+// Time is a wrapper around time.
+message Time {
+  // Represents seconds of UTC time since Unix epoch
+  // 1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to
+  // 9999-12-31T23:59:59Z inclusive.
+  int64 seconds = 1;
+
+  // Non-negative fractions of a second at nanosecond resolution. Negative
+  // second values with fractions must still have non-negative nanos values
+  // that count forward in time. Must be from 0 to 999,999,999
+  // inclusive. This field may be limited in precision depending on context.
+  int32 nanos = 2;
+}
+
+// Describes the class of pods that should avoid this node.
+// Exactly one field should be set.
+message PodSignature {
+  // Reference to controller whose pods should avoid this node.
+  OwnerReference podController = 1;
+}
+
+// AvoidPods describes pods that should avoid this node. This is the value for a
+// Node annotation with key scheduler.alpha.kubernetes.io/preferAvoidPods and
+// will eventually become a field of NodeStatus.
+message AvoidPods {
+  // Bounded-sized list of signatures of pods that should avoid this node, sorted
+  // in timestamp order from oldest to newest. Size of the slice is unspecified.
+  repeated PreferAvoidPodsEntry preferAvoidPods = 1;
+}
+
+// Describes a class of pods that should avoid this node.
+message PreferAvoidPodsEntry {
+  // The class of pods.
+  PodSignature podSignature = 1;
+
+  // Time at which this entry was added to the list.
+  Time evictionTime = 2;
+
+  // (brief) reason why this entry was added to the list.
+  string reason = 3;
+
+  // Human readable message indicating why this entry was added to the list.
+  string message = 4;
+}
+
+
