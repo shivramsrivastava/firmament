@@ -12,6 +12,7 @@ import "base/label.proto";
 import "base/resource_vector.proto";
 import "base/whare_map_stats.proto";
 import "base/taints.proto";
+import "base/avoid_pods_annotation.proto";
 
 message ResourceDescriptor {
   enum ResourceState {
@@ -65,4 +66,6 @@ message ResourceDescriptor {
   repeated Label labels = 32;
   //Taints 
   repeated Taint taints = 33;
+  // Avoid pods annotations
+  repeated AvoidPodsAnnotation avoids = 34;
 }
