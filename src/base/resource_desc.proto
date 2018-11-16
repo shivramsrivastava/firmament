@@ -12,6 +12,7 @@ import "base/label.proto";
 import "base/resource_vector.proto";
 import "base/whare_map_stats.proto";
 import "base/taints.proto";
+import "base/avoid_pods_annotation.proto";
 
 message ResourceDescriptor {
   enum ResourceState {
@@ -67,4 +68,6 @@ message ResourceDescriptor {
   repeated Taint taints = 33;
   // Max pods allowed per node
   uint64 max_pods = 34;
+  // Avoid pods annotations
+  repeated AvoidPodsAnnotation avoids = 35;
 }
