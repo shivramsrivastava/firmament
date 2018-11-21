@@ -323,11 +323,23 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
   } else {
     taints_score.final_score = 0;
   }
+ 
+  // Expressing avoid pods priority scores
+  unordered_map<ResourceID_t, PriorityScoresList_t,
+            boost::hash<boost::uuids::uuid>>* avoid_pods_priority_scores_ptr =
+                                  FindOrNull(ec_to_node_priority_scores, ec1);
+  CHECK_NOTNULL(avoid_pods_priority_scores_ptr);
+  PriorityScoresList_t* avoid_pods_scores_struct_ptr =
+      FindOrNull(*avoid_pods_priority_scores_ptr, *machine_res_id);
+  CHECK_NOTNULL(avoid_pods_scores_struct_ptr);
+  PriorityScore_t& prefer_avoid_pods_score =
+      avoid_pods_scores_struct_ptr->prefer_avoid_pods_priority;
 
   cost_vector.node_affinity_soft_cost_ =
       omega_ - node_affinity_normalized_score;
   cost_vector.pod_affinity_soft_cost_ = omega_ - pod_affinity_normalized_score;
   cost_vector.intolerable_taints_cost_ = taints_score.final_score;
+  cost_vector.prefer_avoid_pods_cost_ = prefer_avoid_pods_score.score;
 
   Cost_t final_cost = FlattenCostVector(cost_vector);
   // Added for solver
@@ -355,6 +367,7 @@ Cost_t CpuCostModel::FlattenCostVector(CpuMemCostVector_t cv) {
   accumulator += cv.node_affinity_soft_cost_;
   accumulator += cv.pod_affinity_soft_cost_;
   accumulator += cv.intolerable_taints_cost_;
+  accumulator += cv.prefer_avoid_pods_cost_;
   if (accumulator > infinity_) infinity_ = accumulator + 1;
   return accumulator;
 }
@@ -1191,6 +1204,49 @@ void CpuCostModel::CalculatePodAffinityAntiAffinityPreference(
   }
 }
 
+void CpuCostModel::CalculateNodePreferAvoidPodsPriority(
+                   const ResourceDescriptor rd, const TaskDescriptor td,
+                   const EquivClass_t ec) {
+  unordered_map<ResourceID_t, PriorityScoresList_t,
+            boost::hash<boost::uuids::uuid>>* nodes_priority_scores_ptr =
+                               FindOrNull(ec_to_node_priority_scores, ec);
+  if (!nodes_priority_scores_ptr) {
+    unordered_map<ResourceID_t, PriorityScoresList_t,
+                  boost::hash<boost::uuids::uuid>> node_to_priority_scores_map;
+    InsertIfNotPresent(&ec_to_node_priority_scores, ec,
+                                              node_to_priority_scores_map);
+    nodes_priority_scores_ptr = FindOrNull(ec_to_node_priority_scores, ec);
+  }
+  CHECK_NOTNULL(nodes_priority_scores_ptr);
+  ResourceID_t res_id = ResourceIDFromString(rd.uuid());
+  PriorityScoresList_t* priority_scores_struct_ptr =
+      FindOrNull(*nodes_priority_scores_ptr, res_id);
+  if (!priority_scores_struct_ptr) {
+    PriorityScoresList_t priority_scores_list;
+    InsertIfNotPresent(nodes_priority_scores_ptr, res_id, priority_scores_list);
+    priority_scores_struct_ptr = FindOrNull(*nodes_priority_scores_ptr, res_id);
+  }
+  CHECK_NOTNULL(priority_scores_struct_ptr);
+  PriorityScore_t& prefer_avoid_pods_priority =
+                   priority_scores_struct_ptr->prefer_avoid_pods_priority;
+  if ((rd.avoids_size())
+      && (!td.owner_ref_kind().compare(string("ReplicationController")) 
+      || !td.owner_ref_kind().compare(string("ReplicaSet")))) {
+    for (auto avoid : rd.avoids()) {
+      if ((!td.owner_ref_kind().compare(avoid.kind())) 
+                               && (!td.owner_ref_uid().compare(avoid.uid()))) {
+        // Avoid pods annotations matched. 
+        // Score should be high so that cost will be high.
+        prefer_avoid_pods_priority.score = omega_;
+        return;
+      }
+    }
+  }
+  // No match for avoid pods annotations.
+  // Score should be zero so that cost is not affected byt this.
+  prefer_avoid_pods_priority.score = 0;
+}
+
 // Pod affinity/anti-affinity symmetry.
 void CpuCostModel::UpdateResourceToTaskSymmetryMap(ResourceID_t res_id,
                                                    TaskID_t task_id) {
@@ -1444,6 +1500,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
             }
           }
         }
+
+        // Calculate prefer avoid pods priority for node
+        CalculateNodePreferAvoidPodsPriority(rd, *td_ptr, ec);
       }
       CpuMemResVector_t available_resources;
       available_resources.cpu_cores_ =
