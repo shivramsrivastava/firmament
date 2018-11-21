@@ -94,6 +94,8 @@ message TaskDescriptor {
   string task_namespace = 35;
   // Tolerations
   repeated Toleration tolerations = 36;
-  // Owner refernce kind
+  // Owner reference kind
   string owner_ref_kind = 37;
+  //Owner reference uid
+  string owner_ref_uid = 38;
 }

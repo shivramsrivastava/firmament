@@ -43,12 +43,14 @@ struct CpuMemCostVector_t {
   uint64_t node_affinity_soft_cost_;
   uint64_t pod_affinity_soft_cost_;
   uint64_t intolerable_taints_cost_;
+  uint64_t prefer_avoid_pods_cost_;
   CpuMemCostVector_t()
       : cpu_mem_cost_(0),
         balanced_res_cost_(0),
         node_affinity_soft_cost_(0),
         pod_affinity_soft_cost_(0),
-	intolerable_taints_cost_(0) {}
+	intolerable_taints_cost_(0),
+        prefer_avoid_pods_cost_(0) {}
 };
 
 struct CpuMemResVector_t {
@@ -81,6 +83,7 @@ struct PriorityScoresList_t {
   PriorityScore_t node_affinity_priority;
   PriorityScore_t pod_affinity_priority;
   PriorityScore_t intolerable_taints_priority;
+  PriorityScore_t prefer_avoid_pods_priority;
 };
 
 class CpuCostModel : public CostModelInterface {
@@ -157,6 +160,9 @@ class CpuCostModel : public CostModelInterface {
   void CalculateIntolerableTaintsCost(const ResourceDescriptor& rd,
                                                   const TaskDescriptor* td,
                                                   const EquivClass_t ec);
+  void CalculateNodePreferAvoidPodsPriority(const ResourceDescriptor rd,
+                                            const TaskDescriptor td,
+                                            const EquivClass_t ec);
   // Pod affinity/anti-affinity symmetry
   bool CheckPodAffinityAntiAffinitySymmetryConflict(TaskDescriptor* td_ptr);
   void UpdateResourceToTaskSymmetryMap(ResourceID_t res_id, TaskID_t td);
