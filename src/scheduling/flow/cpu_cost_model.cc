@@ -327,21 +327,25 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
   }
  
   // Expressing avoid pods priority scores
-  unordered_map<ResourceID_t, PriorityScoresList_t,
+  if (rd.avoids_size()) {
+    unordered_map<ResourceID_t, PriorityScoresList_t,
             boost::hash<boost::uuids::uuid>>* avoid_pods_priority_scores_ptr =
                                   FindOrNull(ec_to_node_priority_scores, ec1);
-  CHECK_NOTNULL(avoid_pods_priority_scores_ptr);
-  PriorityScoresList_t* avoid_pods_scores_struct_ptr =
-      FindOrNull(*avoid_pods_priority_scores_ptr, *machine_res_id);
-  CHECK_NOTNULL(avoid_pods_scores_struct_ptr);
-  PriorityScore_t& prefer_avoid_pods_score =
-      avoid_pods_scores_struct_ptr->prefer_avoid_pods_priority;
+    CHECK_NOTNULL(avoid_pods_priority_scores_ptr);
+    PriorityScoresList_t* avoid_pods_scores_struct_ptr =
+        FindOrNull(*avoid_pods_priority_scores_ptr, *machine_res_id);
+    CHECK_NOTNULL(avoid_pods_scores_struct_ptr);
+    PriorityScore_t& prefer_avoid_pods_score =
+        avoid_pods_scores_struct_ptr->prefer_avoid_pods_priority;
+    cost_vector.prefer_avoid_pods_cost_ = prefer_avoid_pods_score.score;
+  } else {
+    cost_vector.prefer_avoid_pods_cost_ = 0;
+  }
 
   cost_vector.node_affinity_soft_cost_ =
       omega_ - node_affinity_normalized_score;
   cost_vector.pod_affinity_soft_cost_ = omega_ - pod_affinity_normalized_score;
   cost_vector.intolerable_taints_cost_ = taints_score.final_score;
-  cost_vector.prefer_avoid_pods_cost_ = prefer_avoid_pods_score.score;
 
   Cost_t final_cost = FlattenCostVector(cost_vector);
   // Added for solver
@@ -1504,7 +1508,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
         }
 
         // Calculate prefer avoid pods priority for node
-        CalculateNodePreferAvoidPodsPriority(rd, *td_ptr, ec);
+        if (rd.avoids_size()) {
+          CalculateNodePreferAvoidPodsPriority(rd, *td_ptr, ec);
+        }
       }
       CpuMemResVector_t available_resources;
       available_resources.cpu_cores_ =
