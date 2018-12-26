@@ -668,20 +668,34 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       // utilization to 10%.
       cpu_stats->set_cpu_capacity(
           rtnd_ptr->resource_desc().resource_capacity().cpu_cores());
-      cpu_stats->set_cpu_utilization(0.1);
-      cpu_stats->set_cpu_allocatable(cpu_stats->cpu_capacity() * 0.9);
+      cpu_stats->set_cpu_allocatable(
+          rtnd_ptr->resource_desc().available_resources().cpu_cores());
+      double cpu_utilization =
+          (cpu_stats->cpu_capacity() - cpu_stats->cpu_allocatable()) /
+          (double)cpu_stats->cpu_capacity();
+      cpu_stats->set_cpu_utilization(cpu_utilization);
       resource_stats.set_mem_capacity(
           rtnd_ptr->resource_desc().resource_capacity().ram_cap());
-      resource_stats.set_mem_utilization(0.1);
-      resource_stats.set_mem_allocatable(resource_stats.mem_capacity() * 0.9);
+      resource_stats.set_mem_allocatable(
+          rtnd_ptr->resource_desc().available_resources().ram_cap());
+      double mem_utilization =
+          (resource_stats.mem_capacity() - resource_stats.mem_allocatable()) /
+          (double)resource_stats.mem_capacity();
+      resource_stats.set_mem_utilization(mem_utilization);
       resource_stats.set_disk_bw(0);
       resource_stats.set_net_rx_bw(0);
       resource_stats.set_net_tx_bw(0);
       // ephemeral storage
       resource_stats.set_ephemeral_storage_capacity(
           rtnd_ptr->resource_desc().resource_capacity().ephemeral_storage());
-      resource_stats.set_ephemeral_storage_utilization(0.1);
-      resource_stats.set_ephemeral_storage_allocatable(resource_stats.ephemeral_storage_capacity() * 0.9);
+      resource_stats.set_ephemeral_storage_allocatable(
+          rtnd_ptr->resource_desc().available_resources().ephemeral_storage());
+      double ephemeral_storage_utilization =
+          (resource_stats.ephemeral_storage_capacity() -
+           resource_stats.ephemeral_storage_allocatable()) /
+          (double)resource_stats.ephemeral_storage_capacity();
+      resource_stats.set_ephemeral_storage_utilization(
+                                             ephemeral_storage_utilization);
       knowledge_base_->AddMachineSample(resource_stats);
     }
     return Status::OK;
