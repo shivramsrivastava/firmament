@@ -20,7 +20,7 @@ script:
 
 after_success:
   - lcov --directory . --capture --output-file coverage.info
-  - lcov --remove coverage.info 'tests/*' '/usr/*' '/home/travis/build/camsas/firmament/build/*' --output-file coverage.info
+  - lcov --remove coverage.info 'tests/*' '/usr/*' '/home/travis/build/Huawei-PaaS/firmament/build/*' --output-file coverage.info
   - lcov --list coverage.info
   - coveralls-lcov coverage.info
 
@@ -28,9 +28,6 @@ branches:
   only:
     - master
 
-notifications:
-  email: true
-    - firmament-dev@camsas.org
 
 os:
   - linux

@@ -1,5 +1,4 @@
 FROM ubuntu:16.04
-MAINTAINER firmament-dev@camsas.org
 
 RUN apt-get -y update
 RUN apt-get -y install git-core build-essential make && git clone -b dev https://github.com/Huawei-PaaS/firmament /firmament

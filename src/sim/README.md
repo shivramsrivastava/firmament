@@ -67,5 +67,4 @@ and extend `src/sim/simulator_bridge.cc` to instantiate your new scheduler.
 
 ## Contact
 
-If you would like to contact us, please send an email to firmament@camsas.org,
-or create an issue on GitHub.
+If you would like to contact us, please create an issue on GitHub.
