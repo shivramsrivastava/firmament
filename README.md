@@ -1,10 +1,6 @@
-Firmament is a cluster manager and scheduling platform developed CamSaS
-(http://camsas.org) at the University of Cambridge Computer Laboratory.
+#Firmament
 
-[![Build Status](https://travis-ci.org/camsas/firmament.svg)](https://travis-ci.org/camsas/firmament)
-[![Coverage Status](https://coveralls.io/repos/github/camsas/firmament/badge.svg?branch=master)](https://coveralls.io/github/camsas/firmament?branch=master)
-
-Firmament is currently in alpha stage: it runs your jobs and tasks fairly
+Firmament is a cluster manager and scheduling platform. Firmament is currently in alpha stage: it runs your jobs and tasks fairly
 reliably, but system components keep changing regularly, and we are actively
 developing system features.
 
@@ -13,13 +9,13 @@ developing system features.
 The easiest way to get Firmament up and running is to use our Docker image:
 
 ```
-$ docker pull camsas/firmament:dev
+$ docker pull huaweifirmament/firmament
 ```
 
 Once the image has downloaded, you can start Firmament as follows:
 
 ```console
-$ docker run camsas/firmament:dev /firmament/build/src/coordinator --scheduler flow --flow_scheduling_cost_model 6 --listen_uri tcp:<host>:<port> --task_lib_dir=$(pwd)/build/src
+$ docker run --net=host huaweifirmament/firmament /firmament/build/src/firmament_scheduler --flagfile=/firmament/config/firmament_scheduler_cpu_mem.cfg
 ```
 
 # Building from source
@@ -67,37 +63,12 @@ runs unit tests.
 Binaries are in the build/src subdirectory of the project root, and all accept
 the `--helpshort` argument to show their command line options.
 
-Start up by running a coordinator:
+You can bring up the firmament by running below command.
 
-```console
-$ build/src/coordinator --listen_uri tcp:<host>:<port> --task_lib_dir=$(pwd)/build/src/
 ```
-
-Once the coordinator is up and running, you can access its HTTP interface at
-http://<host>:8080/ (the port can be customized using `--http_ui_port`
-argument). Note that you should run the coordinator from the Firmament workspace
-root directory in order for all web templates to be located successfully.
-
-To submit a toy job, use the script in `scripts/job/job_submit.py`. Note that
-jobs are submitted to the web UI port, and NOT the internal listen port!
-
-```console
-$ cd scripts/job/
-$ python job_submit.py <host> <webUI port (8080)> <binary>
+$ cd firmament
+$ ./build/src/firmament_scheduler --flagfile=config/firmament_scheduler.cfg
 ```
-
-Example for the last line:
-
-```console
-$ python job_submit.py localhost 8080 /bin/sleep 60
-```
-
-(Note that you may need to run `make scripts_job` in the build directory since
-the script depends on some protocol buffer data structures that need to be
-compiled. If you have built the `coordinator` target (part of the defaults),
-all script dependencies should automatically have been built, though.)
-
-If this all works, you should see the new job on the web UI.
 
 ## Using the flow scheduler
 
@@ -154,11 +125,11 @@ The easiest way to get Firmament scheduler service up and running is to use our 
 Once the image has downloaded, you can start the Firmament scheduler service as follows:
 
 ```
-$ docker run camsas/firmament:dev /firmament/build/src/firmament_scheduler --flagfile=/firmament/default.conf
+$ docker run huaweifirmament/firmament /firmament/build/src/firmament_scheduler --flagfile=/firmament/default.conf
 ```
 
 You can now deploy our Firmament integration with Kubernetes to schedule Kubernetes pods.
-You can follow these [instructions](https://github.com/camsas/poseidon/blob/master/README.md)
+You can follow these [instructions](https://github.com/kubernetes-sigs/poseidon/blob/master/README.md)
 to build and deploy Poseidon, our Kubernetes integration.
 
 
@@ -168,20 +139,7 @@ We always welcome contributions to Firmament. One contribution you can
 easily make as a newcomer is to do **code reviews** -- this also helps you
 familiarise yourself with the Firmament code base, _en passant_.
 
-We use GerritHub for our code reviews. You can find the Firmament review board
-there:
-
-https://review.gerrithub.io/#/q/project:camsas/firmament+is:open
-
-In order to do code reviews, you will need an account on GerritHub (you can link
-your GitHub account). Once you've created an account, please email us at
-firmament-dev@camsas.org to let us know that you're interested in doing reviews,
-or comment on an open review.
-
 If you would like to contribute a **pull request**, that's also most welcome!
-The easiest way to submit changes for review is to check out Firmament from
-GerritHub, or to add GerritHub as a remote. Alternatively, you can submit a pull
-request on GitHub and we will import it for review on GerritHub.
 
 ### Code style
 
@@ -191,6 +149,4 @@ using the `make lint` target, which runs the C++ linting script on your
 checkout.
 
 ## Contact
-
-If you would like to contact us, please send an email to firmament@camsas.org,
-or create an issue on GitHub.
+If you would like to contact us, please create an issue on GitHub.

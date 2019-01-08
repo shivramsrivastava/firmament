@@ -19,5 +19,6 @@ tests/*
 *.ERROR
 *.WARNING
 *.FATAL
+.idea/
 simulation.*
 *~
