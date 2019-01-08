@@ -1,4 +1,4 @@
-#Firmament
+# Firmament
 
 Firmament is a cluster manager and scheduling platform. Firmament is currently in alpha stage: it runs your jobs and tasks fairly
 reliably, but system components keep changing regularly, and we are actively
