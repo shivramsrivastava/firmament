@@ -237,7 +237,7 @@ find_package(ZLIB REQUIRED)
 ExternalProject_Add(
     grpc
     GIT_REPOSITORY https://github.com/grpc/grpc.git
-    GIT_TAG v1.2.0
+    GIT_TAG v1.17.1
     TIMEOUT 10
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/third_party/grpc
     DEPENDS protobuf3
@@ -263,5 +263,7 @@ include_directories(${grpc_INCLUDE_DIR})
 set(grpc_LIBRARY
   ${grpc_SOURCE_DIR}/libgrpc++_unsecure.a
   ${grpc_SOURCE_DIR}/libgrpc_unsecure.a
-  ${grpc_SOURCE_DIR}/libgpr.a)
+  ${grpc_SOURCE_DIR}/libgpr.a
+  ${grpc_SOURCE_DIR}/third_party/cares/cares/lib/libcares.a
+  ${grpc_SOURCE_DIR}/libaddress_sorting.a)
 message(${grpc_LIBRARY})
