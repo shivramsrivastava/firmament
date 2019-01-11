@@ -12,7 +12,7 @@ find_package(Boost REQUIRED COMPONENTS chrono date_time filesystem regex
 if (${ENABLE_CS2})
   ExternalProject_Add(
       cs2
-      GIT_REPOSITORY https://github.com/ICGog/cs2.git
+      GIT_REPOSITORY https://github.com/shivramsrivastava/cs2.git
       TIMEOUT 10
       PREFIX ${CMAKE_CURRENT_BINARY_DIR}/third_party/cs2
       # XXX/malte): workaround for CMake issue forcing a spurious git stash
