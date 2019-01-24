@@ -1462,9 +1462,9 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
       //TODO(Pratik) : FLAGS_max_tasks_per_pu is treated as equivalent to max-pods,
       // as max-pods functionality is not yet merged at this point.
       for (cur_resource = *task_resource_request;
-           cur_resource.cpu_cores_ <= available_resources.cpu_cores_ &&
-           cur_resource.ram_cap_ <= available_resources.ram_cap_ &&
-           cur_resource.ephemeral_storage_ <= available_resources.ephemeral_storage_ &&
+           cur_resource.cpu_cores_ < available_resources.cpu_cores_ &&
+           cur_resource.ram_cap_ < available_resources.ram_cap_ &&
+           cur_resource.ephemeral_storage_ < available_resources.ephemeral_storage_ &&
            index < ecs_for_machine->size() && task_count < FLAGS_max_tasks_per_pu;
            cur_resource.cpu_cores_ += task_resource_request->cpu_cores_,
           cur_resource.ram_cap_ += task_resource_request->ram_cap_,
