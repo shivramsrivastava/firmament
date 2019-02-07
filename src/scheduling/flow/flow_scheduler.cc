@@ -206,7 +206,7 @@ uint64_t FlowScheduler::ApplySchedulingDeltas(
                                    JobIDFromString(td_ptr->job_id()));
     CHECK_NOTNULL(jd);
     if (jd->is_gang_scheduling_job()) {
-      if (td_ptr->has_affinity()
+      if (!affinity_batch_schedule && td_ptr->has_affinity()
           && (td_ptr->affinity().has_pod_affinity()
           || td_ptr->affinity().has_pod_anti_affinity())) {
         if (queue_based_schedule) {
@@ -354,10 +354,49 @@ void FlowScheduler::HandleTasksFromDeregisteredResource(
   }
 }
 
+void FlowScheduler::RemoveAffinityAntiAffinityJobData(JobID_t job_id) {
+  JobDescriptor* jdp = FindOrNull(*job_map_, job_id);
+  if (jdp) {
+    no_conflict_root_tasks_.erase(jdp->root_task().uid());
+    vector<TaskID_t>* tasks_vec =
+          FindOrNull(no_conflict_tasks_map_, jdp->root_task().uid());
+    if (tasks_vec) {
+      if (tasks_vec->size()) {
+        vector<TaskID_t>::iterator it_first = tasks_vec->begin();
+        TaskID_t key_task = *it_first;
+        tasks_vec->erase(it_first);
+        InsertIfNotPresent(&no_conflict_tasks_map_, key_task, *tasks_vec);
+        no_conflict_task_mapped_.erase(key_task);
+        for (auto t : *tasks_vec) {
+          no_conflict_task_mapped_.erase(t);
+          InsertIfNotPresent(&no_conflict_task_mapped_, t, key_task);
+        }
+      }
+      no_conflict_tasks_map_.erase(jdp->root_task().uid());
+    } else {
+      TaskID_t* key_rtask =
+               FindOrNull(no_conflict_task_mapped_, jdp->root_task().uid());
+      if (key_rtask) {
+        vector<TaskID_t>* t_vec =
+                          FindOrNull(no_conflict_tasks_map_, *key_rtask);
+        if (t_vec) {
+          vector<TaskID_t>::iterator it_vec =
+                 find(t_vec->begin(), t_vec->end(), jdp->root_task().uid());
+          if (it_vec != t_vec->end()) {
+            t_vec->erase(it_vec);
+          }
+        }
+        no_conflict_task_mapped_.erase(jdp->root_task().uid());
+      }
+    }
+  }
+}
+
 void FlowScheduler::HandleJobCompletion(JobID_t job_id) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   // Job completed, so remove its nodes
   flow_graph_manager_->JobCompleted(job_id);
+  RemoveAffinityAntiAffinityJobData(job_id);
   // Call into superclass handler
   EventDrivenScheduler::HandleJobCompletion(job_id);
 }
@@ -367,7 +406,8 @@ void FlowScheduler::HandleJobRemoval(JobID_t job_id) {
   flow_graph_manager_->JobRemoved(job_id);
   JobDescriptor* jdp = FindOrNull(*job_map_, job_id);
   if (jdp) {
-      affinity_job_to_deltas_.erase(jdp);
+    affinity_job_to_deltas_.erase(jdp);
+    RemoveAffinityAntiAffinityJobData(job_id);
   }
   // Call into superclass handler
   EventDrivenScheduler::HandleJobRemoval(job_id);
@@ -404,12 +444,6 @@ void FlowScheduler::HandleTaskEviction(TaskDescriptor* td_ptr,
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   flow_graph_manager_->TaskEvicted(td_ptr->uid(),
                                    ResourceIDFromString(rd_ptr->uuid()));
-  vector<TaskID_t>::iterator it =
-                    find(affinity_antiaffinity_tasks_->begin(),
-                    affinity_antiaffinity_tasks_->end(), td_ptr->uid());
-  if (it == affinity_antiaffinity_tasks_->end()) {
-     affinity_antiaffinity_tasks_->push_back(*it);
-  }
   if (FLAGS_pod_affinity_antiaffinity_symmetry) {
     cost_model_->RemoveTaskFromTaskSymmetryMap(td_ptr);
   }
@@ -536,13 +570,107 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats) {
   return ScheduleAllJobs(scheduler_stats, NULL);
 }
 
+vector<TaskID_t>* FlowScheduler::ScheduleAllAffinityBatchJobs(
+                                           SchedulerStats* scheduler_stats,
+                                           vector<SchedulingDelta>* deltas) {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
+  uint64_t num_scheduled_tasks = 0;
+  vector<TaskID_t>* unscheduled_tasks = new vector<TaskID_t>();
+  affinity_batch_schedule = true;
+  UpdateBatchAffinityTasksMap();
+  for (auto it = no_conflict_tasks_map_.begin();
+       it != no_conflict_tasks_map_.end(); it++) {
+    affinity_batch_job_schedule_.insert(it->first);
+    for (auto rtask : it->second) {
+      affinity_batch_job_schedule_.insert(rtask);
+    }
+    num_scheduled_tasks += ScheduleAllJobs(scheduler_stats, deltas);
+    for (auto rtask : affinity_batch_job_schedule_) {
+      TaskDescriptor* rtd_ptr = FindPtrOrNull(*task_map_, rtask);
+      if (!rtd_ptr) {
+        continue;
+      }
+      JobID_t tdp_job_id = JobIDFromString(rtd_ptr->job_id());
+      if (rtd_ptr->state() == TaskDescriptor::RUNNABLE) {
+        rtd_ptr->set_state(TaskDescriptor::CREATED);
+        runnable_tasks_[tdp_job_id].erase(rtd_ptr->uid());
+        flow_graph_manager_->TaskRemoved(rtd_ptr->uid());
+        unscheduled_tasks->push_back(rtd_ptr->uid());
+      }
+      for (auto td : rtd_ptr->spawned()) {
+        if (td.state() == TaskDescriptor::RUNNABLE) {
+          td.set_state(TaskDescriptor::CREATED);
+          runnable_tasks_[tdp_job_id].erase(td.uid());
+          flow_graph_manager_->TaskRemoved(td.uid());
+          unscheduled_tasks->push_back(td.uid());
+        }
+      }
+    }
+    affinity_batch_job_schedule_.clear();
+  }
+  affinity_batch_schedule = false;
+  return unscheduled_tasks;
+}
+
 uint64_t FlowScheduler::ScheduleAllQueueJobs(SchedulerStats* scheduler_stats,
                                              vector<SchedulingDelta>* deltas) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   queue_based_schedule = true;
+  auto task_itr = affinity_antiaffinity_tasks_->begin();
+  TaskDescriptor* tdp = FindPtrOrNull(*task_map_, *task_itr);
+  if (tdp) {
+    if (tdp->state() == TaskDescriptor::RUNNABLE) {
+      TaskID_t task_id = *task_itr;
+      tdp->set_state(TaskDescriptor::CREATED);
+      affinity_antiaffinity_tasks_->erase(task_itr);
+      affinity_antiaffinity_tasks_->push_back(task_id);
+      JobID_t tdp_job_id = JobIDFromString(tdp->job_id());
+      runnable_tasks_[tdp_job_id].erase(task_id);
+      flow_graph_manager_->TaskRemoved(task_id);
+    }
+  }
   uint64_t num_scheduled_tasks = ScheduleAllJobs(scheduler_stats, deltas);
   queue_based_schedule = false;
   return num_scheduled_tasks;
+}
+
+void FlowScheduler::UpdateBatchAffinityTasksMap() {
+  for (auto task : no_conflict_root_tasks_) {
+    bool matched = false;
+    TaskDescriptor* rtd = FindPtrOrNull(*task_map_, task);
+    for (auto it = no_conflict_tasks_map_.begin();
+              it != no_conflict_tasks_map_.end(); it++) {
+      TaskDescriptor* other_rtd = FindPtrOrNull(*task_map_, it->first);
+      if (!CheckPodAffinityNoConflictWithin(rtd, other_rtd)
+          || !CheckPodAntiAffinityNoConflictWithin(rtd, other_rtd)
+          || !CheckPodAffinityNoConflictWithin(other_rtd, rtd)
+          || !CheckPodAntiAffinityNoConflictWithin(other_rtd, rtd)) {
+        continue;
+      }
+      bool other_task_match = true;
+      for (auto other_task : it->second) {
+        other_rtd = FindPtrOrNull(*task_map_, other_task);
+        if (!CheckPodAffinityNoConflictWithin(rtd, other_rtd)
+            || !CheckPodAntiAffinityNoConflictWithin(rtd, other_rtd)
+            || !CheckPodAffinityNoConflictWithin(other_rtd, rtd)
+            || !CheckPodAntiAffinityNoConflictWithin(other_rtd, rtd)) {
+          other_task_match = false;
+          break;
+        }
+      }
+      if (!other_task_match) {
+        continue;
+      } else {
+        matched = true;
+        it->second.push_back(task);
+        InsertIfNotPresent(&no_conflict_task_mapped_, task, it->first);
+      }
+    }
+    if (!matched) {
+      vector<TaskID_t> tasks_vec;
+      InsertIfNotPresent(&no_conflict_tasks_map_, task, tasks_vec);
+    }
+  }
 }
 
 uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
@@ -551,11 +679,21 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
   vector<JobDescriptor*> jobs;
   //Pod affinity/anti-affinity
   one_task_runnable = false;
+  if (affinity_batch_schedule) {
+    if (!affinity_batch_job_schedule_.size()) {
+      return 0;
+    }
+  }
   for (auto& job_id_jd : jobs_to_schedule_) {
     const TaskDescriptor& td = job_id_jd.second->root_task();
     if (queue_based_schedule) {
       if (!(td.has_affinity() && (td.affinity().has_pod_affinity() ||
           td.affinity().has_pod_anti_affinity()))) {
+        continue;
+      }
+    } else if (affinity_batch_schedule) {
+      if (affinity_batch_job_schedule_.find(td.uid())
+                            == affinity_batch_job_schedule_.end()) {
         continue;
       }
     } else {
@@ -898,27 +1036,27 @@ void FlowScheduler::AddKnowledgeBaseResourceStats(TaskDescriptor* td_ptr,
 void FlowScheduler::UpdateGangSchedulingDeltas(
                     SchedulerStats* scheduler_stats,
                     vector<SchedulingDelta>* deltas_output,
-                    vector<uint64_t>* unscheduled_normal_tasks,
+                    vector<uint64_t>* unscheduled_batch_tasks,
                     unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                     vector<uint64_t>* unscheduled_affinity_tasks) {
   // update batch schedule deltas
   for (auto job_ptr : delta_jobs) {
     TaskDescriptor rtd = job_ptr->root_task();
     for (auto td : rtd.spawned()) {
-      vector<uint64_t>::iterator it = find(unscheduled_normal_tasks->begin(),
-                                      unscheduled_normal_tasks->end(),
+      vector<uint64_t>::iterator it = find(unscheduled_batch_tasks->begin(),
+                                      unscheduled_batch_tasks->end(),
                                       td.uid());
-      if (it == unscheduled_normal_tasks->end()) {
-        unscheduled_normal_tasks->push_back(td.uid());
+      if (it == unscheduled_batch_tasks->end()) {
+        unscheduled_batch_tasks->push_back(td.uid());
       }
     }
     delta_jobs.clear();
 
-    vector<uint64_t>::iterator rit = find(unscheduled_normal_tasks->begin(),
-                                     unscheduled_normal_tasks->end(),
+    vector<uint64_t>::iterator rit = find(unscheduled_batch_tasks->begin(),
+                                     unscheduled_batch_tasks->end(),
                                      rtd.uid());
-    if (rit == unscheduled_normal_tasks->end()) {
-      unscheduled_normal_tasks->push_back(rtd.uid());
+    if (rit == unscheduled_batch_tasks->end()) {
+      unscheduled_batch_tasks->push_back(rtd.uid());
     }
   }
 
@@ -927,7 +1065,7 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
             it != affinity_job_to_deltas_.end(); ++it) {
     JobDescriptor* jd_ptr = it->first;
     TaskDescriptor root_td = jd_ptr->root_task();
-    if (!it->second.size()) {
+    if (!it->second.size() && !jd_ptr->min_number_of_tasks()) {
       for (auto td : root_td.spawned()) {
         if (td.state() != TaskDescriptor::RUNNING) {
           unscheduled_affinity_tasks_set->insert(td.uid());
@@ -953,6 +1091,15 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
         HandleTaskEviction(td_ptr, rs->mutable_descriptor());
         td_ptr->set_state(TaskDescriptor::CREATED);
         td_ptr->clear_scheduled_to_resource();
+        if (no_conflict_root_tasks_.find(root_td.uid())
+                                    == no_conflict_root_tasks_.end()) {
+          vector<TaskID_t>::iterator it =
+                          find(affinity_antiaffinity_tasks_->begin(),
+                          affinity_antiaffinity_tasks_->end(), td_ptr->uid());
+          if (it == affinity_antiaffinity_tasks_->end()) {
+            affinity_antiaffinity_tasks_->push_back(td_ptr->uid());
+          }
+        }
         JobID_t job_id = JobIDFromString(jd_ptr->uuid());
         unordered_set<TaskID_t>* runnables_for_job =
           FindOrNull(runnable_tasks_, job_id);
