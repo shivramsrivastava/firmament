@@ -82,6 +82,7 @@ EventDrivenScheduler::EventDrivenScheduler(
   VLOG(1) << "EventDrivenScheduler initiated.";
   one_task_runnable = false;
   queue_based_schedule = false;
+  affinity_batch_schedule = false;
 }
 
 EventDrivenScheduler::~EventDrivenScheduler() {
@@ -101,14 +102,183 @@ EventDrivenScheduler::~EventDrivenScheduler() {
 void EventDrivenScheduler::AddJob(JobDescriptor* jd_ptr) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   InsertOrUpdate(&jobs_to_schedule_, JobIDFromString(jd_ptr->uuid()), jd_ptr);
-  if (jd_ptr->is_gang_scheduling_job()) {
-    TaskDescriptor rtd = jd_ptr->root_task();
-    if (rtd.has_affinity() && (rtd.affinity().has_pod_affinity()
-                           || rtd.affinity().has_pod_anti_affinity())) {
-      vector<SchedulingDelta> delta_v;
-      InsertIfNotPresent(&affinity_job_to_deltas_, jd_ptr, delta_v);
+  AddPodAffinityAntiAffinityJobData(jd_ptr);
+}
+
+void EventDrivenScheduler::AddPodAffinityAntiAffinityJobData(
+                                                JobDescriptor* jd_ptr) {
+  TaskDescriptor rtd = jd_ptr->root_task();
+  if (rtd.has_affinity() && (rtd.affinity().has_pod_affinity()
+                         || rtd.affinity().has_pod_anti_affinity())) {
+    bool no_conflict_within = true;
+    if (!CheckPodAffinityNoConflictWithin(&rtd, NULL)) {
+      no_conflict_within = false;
+    }
+    if (no_conflict_within) {
+      if (!CheckPodAntiAffinityNoConflictWithin(&rtd, NULL)) {
+        no_conflict_within = false;
+      }
+    }
+    if (no_conflict_within) {
+      no_conflict_root_tasks_.insert(rtd.uid());
+    } else {
+      if (jd_ptr->is_gang_scheduling_job()) {
+        vector<SchedulingDelta> delta_v;
+        InsertIfNotPresent(&affinity_job_to_deltas_, jd_ptr, delta_v);
+      }
     }
   }
+}
+
+bool EventDrivenScheduler::MatchExpressionWithPodLabels(
+                               unordered_map<string, string>& labels,
+                               const LabelSelectorRequirement& expression) {
+  string* value = FindOrNull(labels, expression.key());
+  if (value) {
+    for (auto& val : expression.values()) {
+      if (!value->compare(val)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool EventDrivenScheduler::NotMatchExpressionWithPodLabels(
+                               unordered_map<string, string>& labels,
+                               const LabelSelectorRequirement& expression) {
+  string* value = FindOrNull(labels, expression.key());
+  if (value) {
+    for (auto& val : expression.values()) {
+      if (!value->compare(val)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool EventDrivenScheduler::MatchExpressionKeyWithPodLabels(
+                               unordered_map<string, string>& labels,
+                               const LabelSelectorRequirement& expression) {
+  string* value = FindOrNull(labels, expression.key());
+  if (value) {
+    return true;
+  }
+  return false;
+}
+
+bool EventDrivenScheduler::NotMatchExpressionKeyWithPodLabels(
+                               unordered_map<string, string>& labels,
+                               const LabelSelectorRequirement& expression) {
+  string* value = FindOrNull(labels, expression.key());
+  if (value) {
+    return false;
+  }
+  return false;
+}
+
+bool EventDrivenScheduler::CheckPodAffinityNoConflictWithin(
+                                   TaskDescriptor* rtd,
+                                   TaskDescriptor* other_rtd) {
+  CHECK_NOTNULL(rtd);
+  if (rtd->affinity().has_pod_affinity()) {
+    if (rtd->affinity().pod_affinity()
+            .requiredduringschedulingignoredduringexecution_size()) {
+      unordered_map<string, string> labels;
+      if (!other_rtd) {
+        other_rtd = rtd;
+      }
+      for (auto& label : other_rtd->labels()) {
+        InsertIfNotPresent(&labels, label.key(), label.value());
+      }
+      for (auto& term : rtd->affinity().pod_affinity()
+              .requiredduringschedulingignoredduringexecution()) {
+        if (term.has_labelselector()) {
+          if (term.labelselector().matchexpressions_size()) {
+            for (auto& expression :
+                       term.labelselector().matchexpressions()) {
+              if (expression.operator_() == std::string("In")) {
+                if (MatchExpressionWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("NotIn")) {
+                if (NotMatchExpressionWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("Exists")) {
+                if (MatchExpressionKeyWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("DoesNotExist")) {
+                if (NotMatchExpressionKeyWithPodLabels(labels, expression)) return false;
+              } else {
+                LOG(FATAL) << "Unsupported selector type: " << expression.operator_();
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+bool EventDrivenScheduler::CheckPodAntiAffinityNoConflictWithin(
+                                       TaskDescriptor* rtd,
+                                       TaskDescriptor* other_rtd) {
+  CHECK_NOTNULL(rtd);
+  if (rtd->affinity().has_pod_anti_affinity()) {
+    if (rtd->affinity().pod_anti_affinity()
+            .requiredduringschedulingignoredduringexecution_size()) {
+      unordered_map<string, string> labels;
+      if (!other_rtd) {
+        other_rtd = rtd;
+      }
+      for (auto& label : other_rtd->labels()) {
+        InsertIfNotPresent(&labels, label.key(), label.value());
+      }
+      for (auto& term : rtd->affinity().pod_anti_affinity()
+              .requiredduringschedulingignoredduringexecution()) {
+        unordered_set<string> namespaces;
+        if (!term.namespaces_size()) {
+          namespaces.insert(rtd->task_namespace());
+        } else {
+          for (auto name : term.namespaces()) {
+            namespaces.insert(name);
+          }
+        }
+        if (namespaces.find(rtd->task_namespace()) != namespaces.end()) {
+          return false;
+        }
+        if (term.has_labelselector()) {
+          if (term.labelselector().matchexpressions_size()) {
+            for (auto& expression_selector :
+                       term.labelselector().matchexpressions()) {
+              LabelSelectorRequirement expression;
+              expression.set_key(expression_selector.key());
+              expression.set_operator_(expression_selector.operator_());
+              for (auto& value : expression_selector.values()) {
+                expression.add_values(value);
+              }
+              if (expression.operator_() == std::string("In")) {
+                if (MatchExpressionWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("NotIn")) {
+                if (NotMatchExpressionWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("Exists")) {
+                if (MatchExpressionKeyWithPodLabels(labels, expression)) return false;
+              } else if (expression.operator_() == std::string("DoesNotExist")) {
+                if (NotMatchExpressionKeyWithPodLabels(labels, expression)) return false;
+              } else {
+                LOG(FATAL) << "Unsupported selector type: " << expression.operator_();
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+unordered_set<TaskID_t>* EventDrivenScheduler::GetNoConflictTasksSet() {
+  return &no_conflict_root_tasks_;
 }
 
 void EventDrivenScheduler::BindTaskToResource(TaskDescriptor* td_ptr,
@@ -659,33 +829,19 @@ void EventDrivenScheduler::LazyGraphReduction(
         current_task->state() == TaskDescriptor::BLOCKING) {
       if (!will_block || (current_task->dependencies_size() == 0
                           && current_task->outputs_size() == 0)) {
-        // Pod affinity/anti-affinity
-        if (current_task->has_affinity() &&
+        if (!affinity_batch_schedule && current_task->has_affinity() &&
             (current_task->affinity().has_pod_affinity() ||
              current_task->affinity().has_pod_anti_affinity())) {
           if (queue_based_schedule == false || one_task_runnable == true)
             continue;
-          for (auto task_itr = affinity_antiaffinity_tasks_->begin();
-               task_itr != affinity_antiaffinity_tasks_->end(); ++task_itr) {
-            TaskDescriptor* tdp = FindPtrOrNull(*task_map_, *task_itr);
-            if (tdp) {
-              if ((tdp->state() == TaskDescriptor::RUNNABLE) &&
-                  (one_task_runnable == false)) {
-                TaskID_t task_id = *task_itr;
-                tdp->set_state(TaskDescriptor::CREATED);
-                task_itr = affinity_antiaffinity_tasks_->erase(task_itr);
-                affinity_antiaffinity_tasks_->push_back(task_id);
-                JobID_t tdp_job_id = JobIDFromString(tdp->job_id());
-                runnable_tasks_[tdp_job_id].erase(task_id);
-                continue;
-              }
-              if (tdp->state() == TaskDescriptor::CREATED) {
-                tdp->set_state(TaskDescriptor::RUNNABLE);
-                InsertTaskIntoRunnables(JobIDFromString(tdp->job_id()),
-                                      tdp->uid());
-                one_task_runnable = true;
-                break;
-              }
+          auto task_itr = affinity_antiaffinity_tasks_->begin();
+          TaskDescriptor* tdp = FindPtrOrNull(*task_map_, *task_itr);
+          if (tdp) {
+            if (tdp->state() == TaskDescriptor::CREATED) {
+              tdp->set_state(TaskDescriptor::RUNNABLE);
+              InsertTaskIntoRunnables(JobIDFromString(tdp->job_id()),
+                                    tdp->uid());
+              one_task_runnable = true;
             }
           }
         } else {
