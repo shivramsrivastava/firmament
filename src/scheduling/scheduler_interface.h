@@ -247,6 +247,17 @@ class SchedulerInterface : public PrintableInterface {
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats) = 0;
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats,
                                    vector<SchedulingDelta>* deltas) = 0;
+
+  /**
+   * Runs a scheduling iteration for all active queue based jobs.
+   * @return the number of tasks scheduled
+   */
+  virtual vector<TaskID_t>* ScheduleAllAffinityBatchJobs(
+                                      SchedulerStats* scheduler_stats,
+                                      vector<SchedulingDelta>* deltas) {
+    return NULL;
+  }
+
   /**
    * Runs a scheduling iteration for all active queue based jobs.
    * @return the number of tasks scheduled
@@ -286,6 +297,14 @@ class SchedulerInterface : public PrintableInterface {
                                 SchedulerStats* scheduler_stats,
                                 vector<SchedulingDelta>* deltas = NULL) = 0;
 
+  /**
+   * Return the lists of root task of each job that do not
+   * have conflict within tasks of that job.
+   */
+  virtual unordered_set<TaskID_t>* GetNoConflictTasksSet() {
+    return NULL;
+  }
+
  protected:
   /**
    * Handles the migration of a task.
@@ -313,6 +332,7 @@ class SchedulerInterface : public PrintableInterface {
    */
   virtual const unordered_set<TaskID_t>& ComputeRunnableTasksForJob(
       JobDescriptor* jd_ptr) = 0;
+
 
   // Pointers to the associated coordinator's job, resource and object maps
   shared_ptr<JobMap_t> job_map_;

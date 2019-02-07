@@ -119,13 +119,17 @@ class CpuCostModel : public CostModelInterface {
   vector<ResourceID_t>* GetTaskPreferenceArcs(TaskID_t task_id);
   // Pod anti-affinity
   bool MatchExpressionWithPodLabels(const ResourceDescriptor& rd,
-                                    const LabelSelectorRequirement& expression);
+                                    const LabelSelectorRequirement& expression,
+                                    bool pod_antiaffinity);
   bool NotMatchExpressionWithPodLabels(
-      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression);
+      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression,
+      bool pod_antiaffinity);
   bool MatchExpressionKeyWithPodLabels(
-      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression);
+      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression,
+      bool pod_antiaffinity);
   bool NotMatchExpressionKeyWithPodLabels(
-      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression);
+      const ResourceDescriptor& rd, const LabelSelectorRequirement& expression,
+      bool pod_antiaffinity);
   bool SatisfiesPodAntiAffinityMatchExpression(
       const ResourceDescriptor& rd,
       const LabelSelectorRequirementAntiAff& expression);
