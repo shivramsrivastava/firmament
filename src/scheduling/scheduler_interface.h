@@ -305,6 +305,11 @@ class SchedulerInterface : public PrintableInterface {
     return NULL;
   }
 
+  /**
+   * Updates with a entry in
+   */
+  virtual void UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {}
+
  protected:
   /**
    * Handles the migration of a task.

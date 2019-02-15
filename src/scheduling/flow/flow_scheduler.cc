@@ -358,37 +358,7 @@ void FlowScheduler::RemoveAffinityAntiAffinityJobData(JobID_t job_id) {
   JobDescriptor* jdp = FindOrNull(*job_map_, job_id);
   if (jdp) {
     no_conflict_root_tasks_.erase(jdp->root_task().uid());
-    vector<TaskID_t>* tasks_vec =
-          FindOrNull(no_conflict_tasks_map_, jdp->root_task().uid());
-    if (tasks_vec) {
-      if (tasks_vec->size()) {
-        vector<TaskID_t>::iterator it_first = tasks_vec->begin();
-        TaskID_t key_task = *it_first;
-        tasks_vec->erase(it_first);
-        InsertIfNotPresent(&no_conflict_tasks_map_, key_task, *tasks_vec);
-        no_conflict_task_mapped_.erase(key_task);
-        for (auto t : *tasks_vec) {
-          no_conflict_task_mapped_.erase(t);
-          InsertIfNotPresent(&no_conflict_task_mapped_, t, key_task);
-        }
-      }
-      no_conflict_tasks_map_.erase(jdp->root_task().uid());
-    } else {
-      TaskID_t* key_rtask =
-               FindOrNull(no_conflict_task_mapped_, jdp->root_task().uid());
-      if (key_rtask) {
-        vector<TaskID_t>* t_vec =
-                          FindOrNull(no_conflict_tasks_map_, *key_rtask);
-        if (t_vec) {
-          vector<TaskID_t>::iterator it_vec =
-                 find(t_vec->begin(), t_vec->end(), jdp->root_task().uid());
-          if (it_vec != t_vec->end()) {
-            t_vec->erase(it_vec);
-          }
-        }
-        no_conflict_task_mapped_.erase(jdp->root_task().uid());
-      }
-    }
+    root_to_children_tasks_.erase(jdp->root_task().uid());
   }
 }
 
@@ -527,6 +497,15 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
     if (FLAGS_pod_affinity_antiaffinity_symmetry) {
       cost_model_->UpdateResourceToTaskSymmetryMap(res_id, td_ptr->uid());
     }
+    if (!td_ptr->spawned_size()) {
+      JobDescriptor* jd_ptr =
+                       FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
+      unordered_set<TaskID_t>* task_set_ptr =
+                  FindOrNull(root_to_children_tasks_, jd_ptr->root_task().uid());
+      if (task_set_ptr) {
+        task_set_ptr->erase(td_ptr->uid());
+      }
+    }
   }
   cost_model_->UpdateResourceToNamespacesMap(res_id,
                                              td_ptr->task_namespace(), true);
@@ -627,6 +606,8 @@ vector<TaskID_t>* FlowScheduler::ScheduleAllAffinityBatchJobs(
     }
     affinity_batch_job_schedule_.clear();
   }
+  no_conflict_tasks_map_.clear();
+  no_conflict_task_mapped_.clear();
   affinity_batch_schedule = false;
   return unscheduled_tasks;
 }
@@ -653,10 +634,22 @@ uint64_t FlowScheduler::ScheduleAllQueueJobs(SchedulerStats* scheduler_stats,
   return num_scheduled_tasks;
 }
 
+bool FlowScheduler::CheckAllTasksInJobRunning(TaskDescriptor* rtd) {
+  if (rtd && (rtd->state() == TaskDescriptor::RUNNING)) {
+    unordered_set<TaskID_t>* spawned_tasks_set =
+                             FindOrNull(root_to_children_tasks_, rtd->uid());
+    if (spawned_tasks_set && !spawned_tasks_set->size()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void FlowScheduler::UpdateBatchAffinityTasksMap() {
   for (auto task : no_conflict_root_tasks_) {
     bool matched = false;
     TaskDescriptor* rtd = FindPtrOrNull(*task_map_, task);
+    if (CheckAllTasksInJobRunning(rtd)) continue;
     for (auto it = no_conflict_tasks_map_.begin();
               it != no_conflict_tasks_map_.end(); it++) {
       TaskDescriptor* other_rtd = FindPtrOrNull(*task_map_, it->first);
@@ -1154,6 +1147,18 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
     it->second.clear();
   }
   affinity_delta_tasks.clear();
+}
+
+void FlowScheduler::UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {
+  if (td_ptr) {
+    JobDescriptor* jd_ptr =
+                     FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
+    unordered_set<TaskID_t>* task_set_ptr =
+                FindOrNull(root_to_children_tasks_, jd_ptr->root_task().uid());
+    if (task_set_ptr) {
+      task_set_ptr->insert(td_ptr->uid());
+    }
+  }
 }
 
 }  // namespace scheduler

@@ -574,6 +574,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       td_ptr->CopyFrom(task_desc_ptr->task_descriptor());
       CHECK(InsertIfNotPresent(task_map_.get(), td_ptr->uid(), td_ptr));
       td_ptr->set_submit_time(wall_time_.GetCurrentTimestamp());
+      scheduler_->UpdateSpawnedToRootTaskMap(td_ptr);
     }
     uint64_t* num_incomplete_tasks =
         FindOrNull(job_num_incomplete_tasks_, job_id);
