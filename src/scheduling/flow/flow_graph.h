@@ -22,6 +22,7 @@
 #define FIRMAMENT_SCHEDULING_FLOW_FLOW_GRAPH_H
 
 #include <queue>
+//#include <iostream>
 #include <vector>
 
 #include "misc/map-util.h"
@@ -57,11 +58,16 @@ class FlowGraph {
   inline uint64_t NumArcs() const { return arc_set_.size(); }
   inline uint64_t NumNodes() const {
     if (!FLAGS_flow_scheduling_solver.compare("flowlessly")) {
-      return node_map_.size();
+		return node_map_.size();
     } else {
       // TODO(malte): This is a work-around as cs2 and Relax IV do not allow
       // sparse node IDs, and will get tripped up
       // if current_id > graph.NumNodes().
+      
+		//using namespace std;
+ 		//std::cout<<" ***** current id ****"<<current_id_;  
+ 		//std::cout<<" ***** node_map.size in else ****"<<node_map_.size();  
+		
       return current_id_;
     }
   }

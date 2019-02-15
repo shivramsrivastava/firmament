@@ -133,6 +133,26 @@ TEST_F(FlowGraphTest, GetArc) {
   fgraph.DeleteNode(node1);
 }
 
+// Tests get arc.
+TEST_F(FlowGraphTest, Node) {
+  FlowGraph fgraph;
+  FlowGraphNode* node0 = fgraph.AddNode();
+  node0->type_ = UNSCHEDULED_TASK;
+  FlowGraphNode* node1 = fgraph.AddNode();
+  node1->type_= UNSCHEDULED_TASK; 
+  
+  //call Node method with uid to get the same nodes
+  FlowGraphNode node0_0 = fgraph.Node(node0->id_);  
+  FlowGraphNode node1_0 = fgraph.Node(node1->id_);
+
+  //are we geting the right node?  
+  CHECK_EQ(node0->type_, node0_0.type_);
+  CHECK_EQ(node1->type_, node1_0.type_); 
+
+  fgraph.DeleteNode(node0);
+  fgraph.DeleteNode(node1);
+}
+
 }  // namespace firmament
 
 int main(int argc, char** argv) {

@@ -183,6 +183,9 @@ class FlowGraphManager {
   FRIEND_TEST(FlowGraphManagerTest, UpdateTaskToResArcs);
   FRIEND_TEST(FlowGraphManagerTest, UpdateTaskToUnscheduledAggArc);
   FRIEND_TEST(FlowGraphManagerTest, UpdateUnscheduledAggNode);
+  FRIEND_TEST(FlowGraphManagerTest, JobCompleted);
+  FRIEND_TEST(FlowGraphManagerTest, UnschedAggNodeForJobID);	
+  FRIEND_TEST(FlowGraphManagerTest,AddResourceTopology);
 
   FlowGraphNode* AddEquivClassNode(EquivClass_t ec);
   FlowGraphNode* AddResourceNode(ResourceDescriptor* rd_ptr);

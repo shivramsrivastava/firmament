@@ -113,6 +113,13 @@ class FlowGraphManagerTest : public ::testing::Test {
     return td_ptr;
   }
 
+  JobDescriptor*  CreateJob(JobDescriptor* jd_ptr, uint64_t job_id_seed) {
+    JobID_t job_id = GenerateJobID(job_id_seed);
+    jd_ptr->set_uuid(to_string(job_id));
+    jd_ptr->set_name(to_string(job_id));
+    return jd_ptr;
+  }
+
   shared_ptr<ResourceMap_t> resource_map_;
   shared_ptr<TaskMap_t> task_map_;
   unordered_set<ResourceID_t, boost::hash<boost::uuids::uuid>>* leaf_res_ids_;
@@ -1356,6 +1363,87 @@ TEST_F(FlowGraphManagerTest, UpdateUnscheduledAggNode) {
   EXPECT_EQ(flow_graph.NumArcs(), 1);
   EXPECT_EQ(arc_to_unsched->cap_upper_bound_, 0);
 }
+
+TEST_F(FlowGraphManagerTest, JobCompleted) {	
+	FlowGraphManager* graph_manager = CreateGraphManagerUsingTrivialCost();
+	uint64_t num_nodes =
+	graph_manager->graph_change_manager_->flow_graph().NumNodes();
+//	EXPECT_EQ(num_nodes,0);
+
+	uint64_t num_arcs =
+	graph_manager->graph_change_manager_->flow_graph().NumArcs();
+	EXPECT_EQ(num_arcs,0);
+	int64_t previous_sink_excess = graph_manager->sink_node_->excess_;
+	JobDescriptor test_job;
+	TaskDescriptor* td_ptr = CreateTask(&test_job, 77);
+	JobID_t job_id = JobIDFromString(td_ptr->job_id());
+	FlowGraphNode* unsched_agg_node = graph_manager->AddUnscheduledAggNode(job_id);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +1);
+	CHECK_NOTNULL(unsched_agg_node);
+	// This call to update ends up adding the arc.
+	graph_manager->UpdateUnscheduledAggNode(unsched_agg_node, 1);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +1);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumArcs(), 1);  
+	FlowGraphNode* task_node 
+		= graph_manager->AddTaskNode(job_id, td_ptr);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +2);
+	CHECK_NOTNULL(task_node);
+	unsched_agg_node 
+		= graph_manager->UpdateTaskToUnscheduledAggArc(task_node);	
+	CHECK_NOTNULL(unsched_agg_node);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +2);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumArcs(), 2/* UnScAgg->T, UnScAgg->sink*/);
+
+	//now we are calling job completed this should remove the UnschduledAggNode with job_id.
+	//it also should remove the archs that is created from task and sking to UnschduledAggNode
+	graph_manager->JobCompleted(job_id);
+	
+	//should delete the UnscheduledAggNode that is not happened.
+	//***TODO *** need to fix this issue.
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +1);
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumArcs(), 0);	
+}
+	
+
+TEST_F(FlowGraphManagerTest, UnschedAggNodeForJobID) {	
+	FlowGraphManager* graph_manager = CreateGraphManagerUsingTrivialCost();
+	uint64_t num_nodes =
+	graph_manager->graph_change_manager_->flow_graph().NumNodes();	
+	uint64_t num_arcs =
+	graph_manager->graph_change_manager_->flow_graph().NumArcs();
+	EXPECT_EQ(num_arcs,0);
+	int64_t previous_sink_excess = graph_manager->sink_node_->excess_;
+	JobDescriptor test_job;
+	TaskDescriptor* td_ptr = CreateTask(&test_job, 77);
+	JobID_t job_id = JobIDFromString(td_ptr->job_id());
+
+	
+	TaskDescriptor* td_ptr1 = CreateTask(&test_job, 78);
+	JobID_t job_id1 = JobIDFromString(td_ptr->job_id());
+	
+	//add unscheduled aggrigate node with job_id
+	FlowGraphNode* unsched_agg_node = graph_manager->AddUnscheduledAggNode(job_id);
+	CHECK_NOTNULL(unsched_agg_node);
+	FlowGraphNode* unsched_agg_node1 = graph_manager->AddUnscheduledAggNode(job_id1);
+	CHECK_NOTNULL(unsched_agg_node1);
+
+	
+	EXPECT_EQ(graph_manager->graph_change_manager_->flow_graph().NumNodes(),num_nodes +2);
+	CHECK_NOTNULL(unsched_agg_node);
+	
+	// This call to update ends up adding the arc.
+	graph_manager->UpdateUnscheduledAggNode(unsched_agg_node, 1);		
+	
+	EXPECT_EQ(graph_manager->UnschedAggNodeForJobID(job_id), unsched_agg_node);  
+	EXPECT_EQ(graph_manager->UnschedAggNodeForJobID(job_id1), unsched_agg_node1);  
+	EXPECT_NE(graph_manager->UnschedAggNodeForJobID(job_id1), unsched_agg_node); 	
+}
+
+TEST_F(FlowGraphManagerTest,AddResourceTopology){
+
+	//*** Suresh TODO 
+	}
+
 
 }  // namespace firmament
 

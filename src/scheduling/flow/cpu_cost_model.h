@@ -230,6 +230,20 @@ class CpuCostModel : public CostModelInterface {
   FRIEND_TEST(CpuCostModelTest, GetOutgoingEquivClassPrefArcs);
   FRIEND_TEST(CpuCostModelTest, GetTaskEquivClasses);
   FRIEND_TEST(CpuCostModelTest, MachineResIDForResource);
+  FRIEND_TEST(CpuCostModelTest, PrepareStats);
+  FRIEND_TEST(CpuCostModelTest, GetMachineEC);
+  FRIEND_TEST(CpuCostModelTest, RemoveTask);
+  FRIEND_TEST(CpuCostModelTest, RemoveMachine);
+  FRIEND_TEST(CpuCostModelTest,ClearUnscheduledTasksData);
+  FRIEND_TEST(CpuCostModelTest,CallMethodsForCoverage);
+  FRIEND_TEST(CpuCostModelTest,SatisfiesPodAntiAffinitySymmetry);
+  FRIEND_TEST(CpuCostModelTest,  CalculatePrioritiesCost);
+  FRIEND_TEST(CpuCostModelTest, CalculateIntolerableTaintsCost);
+  FRIEND_TEST(CpuCostModelTest, MatchExpressionWithPodLabels);
+  FRIEND_TEST(CpuCostModelTest, NotMatchExpressionWithPodLabels);
+  FRIEND_TEST(CpuCostModelTest, SatisfiesPodAntiAffinityMatchExpression);
+  FRIEND_TEST(CpuCostModelTest, SatisfiesPodAffinityMatchExpression);
+  	
   // Load statistics accumulator helper
   void AccumulateResourceStats(ResourceDescriptor* accumulator,
                                ResourceDescriptor* other);

@@ -67,6 +67,7 @@ bool SatisfiesMatchExpressions(
 bool NodeMatchesNodeSelectorTerm(const ResourceDescriptor& rd,
                                  const NodeSelectorTerm& nodeSelectorTerm) {
   if (nodeSelectorTerm.matchexpressions_size() == 0) {
+  	cout<<"nodeSelectorTerm.matchexpressions_size() = 0"<<endl;
     return false;
   } else {
     return SatisfiesMatchExpressions(rd, nodeSelectorTerm.matchexpressions());

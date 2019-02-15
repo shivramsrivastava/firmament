@@ -166,6 +166,7 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
   CHECK_NOTNULL(machine_res_id);
   ResourceStatus* rs = FindPtrOrNull(*resource_map_, *machine_res_id);
   CHECK_NOTNULL(rs);
+  using namespace std; 	
   const ResourceDescriptor& rd = rs->topology_node().resource_desc();
   CHECK_EQ(rd.type(), ResourceDescriptor::RESOURCE_MACHINE);
   CpuMemResVector_t available_resources;
@@ -568,6 +569,7 @@ void CpuCostModel::CalculatePrioritiesCost(const EquivClass_t ec,
           }
           if (scheduler::NodeMatchesNodeSelectorTerm(
                   rd, preferredSchedulingTerm.preference())) {
+                  
             sum_of_weights += preferredSchedulingTerm.weight();
           }
         }
@@ -627,8 +629,7 @@ void CpuCostModel::CalculatePrioritiesCost(const EquivClass_t ec,
               max_min_priority_scores->node_affinity_priority;
           if (min_max_node_affinity_score.max_score < sum_of_weights ||
               min_max_node_affinity_score.max_score == -1) {
-            min_max_node_affinity_score.max_score = sum_of_weights;
-          }
+            min_max_node_affinity_score.max_score = sum_of_weights;          }
         }
       }
     }
@@ -663,7 +664,6 @@ void CpuCostModel::CalculateIntolerableTaintsCost(const ResourceDescriptor& rd,
       }
     }
   }
-
   if (!IsTolerable) {
     for (const auto& taint : rd.taints()) {
       if (taint.effect() == "PreferNoSchedule") {
@@ -1527,6 +1527,7 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
       CpuMemResVector_t cur_resource;
       uint64_t task_count = rd.num_running_tasks_below() +
           knowledge_base_->GetResourceNonFirmamentTaskCount(res_id);
+	
       //TODO(Pratik) : FLAGS_max_tasks_per_pu is treated as equivalent to max-pods,
       // as max-pods functionality is not yet merged at this point.
       for (cur_resource = *task_resource_request;
@@ -1549,6 +1550,7 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
         // scheduling constraints like affinity etc.
         if (task_ec_with_no_pref_arcs_set_.find(ec) ==
             task_ec_with_no_pref_arcs_set_.end()) {
+            
           task_ec_with_no_pref_arcs_.push_back(ec);
           task_ec_with_no_pref_arcs_set_.insert(ec);
         }
@@ -1566,6 +1568,7 @@ void CpuCostModel::AddMachine(ResourceTopologyNodeDescriptor* rtnd_ptr) {
   ResourceID_t res_id = ResourceIDFromString(rd.uuid());
   vector<EquivClass_t> machine_ecs;
   for (uint64_t index = 0; index < rd.max_pods(); ++index) {
+  	using namespace std;
     EquivClass_t multi_machine_ec = GetMachineEC(rd.friendly_name(), index);
     machine_ecs.push_back(multi_machine_ec);
     CHECK(InsertIfNotPresent(&ec_to_index_, multi_machine_ec, index));
@@ -1621,13 +1624,16 @@ FlowGraphNode* CpuCostModel::GatherStats(FlowGraphNode* accumulator,
   ResourceDescriptor* rd_ptr = accumulator->rd_ptr_;
   CHECK_NOTNULL(rd_ptr);
   if (accumulator->type_ == FlowNodeType::PU) {
+  	
     CHECK(other->resource_id_.is_nil());
     ResourceStats latest_stats;
     ResourceID_t machine_res_id =
         MachineResIDForResource(accumulator->resource_id_);
     bool have_sample = knowledge_base_->GetLatestStatsForMachine(machine_res_id,
-                                                                 &latest_stats);
+	&latest_stats);
+	
     if (have_sample) {
+
       VLOG(2) << "Updating PU " << accumulator->resource_id_ << "'s "
               << "resource stats!";
       // Get the CPU stats for this PU
@@ -1642,9 +1648,10 @@ FlowGraphNode* CpuCostModel::GatherStats(FlowGraphNode* accumulator,
         rd_ptr->mutable_available_resources()->set_cpu_cores(
             available_cpu_cores);
       }
+
       // Running/idle task count
       rd_ptr->set_num_running_tasks_below(rd_ptr->current_running_tasks_size());
-      ResourceStatus* m_rs = FindPtrOrNull(*resource_map_, machine_res_id);
+      ResourceStatus* m_rs = FindPtrOrNull(*resource_map_, machine_res_id);	  
       ResourceTopologyNodeDescriptor* m_rtnd = m_rs->mutable_topology_node();
       rd_ptr->set_num_slots_below(m_rtnd->resource_desc().max_pods());
       return accumulator;
