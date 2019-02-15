@@ -102,6 +102,7 @@ class FlowScheduler : public EventDrivenScheduler {
                      vector<uint64_t>* unscheduled_normal_tasks,
                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                      vector<uint64_t>* unscheduled_affinity_tasks);
+  virtual void UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr);
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats,
                                    vector<SchedulingDelta>* deltas);
   virtual uint64_t ScheduleJob(JobDescriptor* jd_ptr,
@@ -150,6 +151,7 @@ class FlowScheduler : public EventDrivenScheduler {
                                                  ResourceStatus* rs);
   void UpdateBatchAffinityTasksMap();
   void RemoveAffinityAntiAffinityJobData(JobID_t job_id);
+  bool CheckAllTasksInJobRunning(TaskDescriptor* rtd);
 
   // Pointer to the coordinator's topology manager
   shared_ptr<TopologyManager> topology_manager_;

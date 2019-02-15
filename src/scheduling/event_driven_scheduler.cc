@@ -121,6 +121,8 @@ void EventDrivenScheduler::AddPodAffinityAntiAffinityJobData(
     }
     if (no_conflict_within) {
       no_conflict_root_tasks_.insert(rtd.uid());
+      unordered_set<TaskID_t> children_set;
+      InsertIfNotPresent(&root_to_children_tasks_, rtd.uid(), children_set);
     } else {
       if (jd_ptr->is_gang_scheduling_job()) {
         vector<SchedulingDelta> delta_v;

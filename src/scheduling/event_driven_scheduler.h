@@ -212,6 +212,7 @@ class EventDrivenScheduler : public SchedulerInterface {
   bool affinity_batch_schedule;
   unordered_map<TaskID_t, vector<TaskID_t>> no_conflict_tasks_map_;
   unordered_map<TaskID_t, TaskID_t> no_conflict_task_mapped_;
+  unordered_map<TaskID_t, unordered_set<TaskID_t>> root_to_children_tasks_;
 };
 
 }  // namespace scheduler
