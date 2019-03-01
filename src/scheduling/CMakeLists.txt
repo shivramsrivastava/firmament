@@ -37,6 +37,7 @@ set(SCHEDULING_SRC
 
 set(SCHEDULING_PROTOBUFS
   scheduling/scheduling_delta.proto
+  scheduling/scheduling_request.proto
   )
 
 set(SCHEDULING_SERVICE_SRC

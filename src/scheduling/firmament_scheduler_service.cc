@@ -62,6 +62,7 @@ DECLARE_bool(resource_stats_update_based_on_resource_reservation);
 DEFINE_string(service_scheduler, "flow", "Scheduler to use: flow | simple");
 DEFINE_uint64(queue_based_scheduling_time, 100,
               "Queue Based Schedule run time");
+DECLARE_bool(schedule_with_nodes);
 
 namespace firmament {
 
@@ -267,6 +268,19 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     if (FLAGS_gather_unscheduled_tasks) {
       cost_model_->ClearUnscheduledTasksData();
     }
+
+	//Map the store information about the job, node and score
+	unordered_map<JobID_t, unordered_map<string, vector<TaskID_t>>> labels_map_
+	
+	//This is to make sure that nodes in the schedule request is new 
+	//all the time.
+	cost_model_->ResetNodeInfoFromSchedulerReq();
+
+	if(FLAGS_schedule_with_nodes){
+		CHECK_NOTNULL(request);
+		cost_model_->SetNodeInfoFromScheduleReq(const_cast<ScheduleRequest*>(request));
+		}
+	
     SchedulerStats sstat;
     vector<SchedulingDelta> deltas;
     // Schedule tasks which does not have pod affinity/anti-affinity

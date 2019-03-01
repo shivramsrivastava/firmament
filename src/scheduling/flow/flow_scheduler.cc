@@ -74,6 +74,8 @@ DECLARE_bool(flowlessly_flip_algorithms);
 DEFINE_bool(resource_stats_update_based_on_resource_reservation, true,
             "Set this false when you have external machine stats server");
 DEFINE_bool(pod_affinity_antiaffinity_symmetry, false, "Enable pod affinity/anti-affinity symmetry");
+DEFINE_bool(schedule_with_nodes, true, "Flag indicating availability of node information");
+
 
 namespace firmament {
 namespace scheduler {

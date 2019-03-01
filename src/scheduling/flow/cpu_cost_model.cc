@@ -35,6 +35,8 @@ DEFINE_uint64(max_multi_arcs_for_cpu, 50, "Maximum number of multi-arcs.");
 DECLARE_uint64(max_tasks_per_pu);
 DECLARE_bool(gather_unscheduled_tasks);
 DECLARE_bool(pod_affinity_antiaffinity_symmetry);
+DECLARE_bool(schedule_with_nodes);
+
 
 namespace firmament {
 
@@ -157,7 +159,9 @@ ArcDescriptor CpuCostModel::EquivClassToResourceNode(EquivClass_t ec,
 }
 
 ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
-                                                   EquivClass_t ec2) {
+
+													 EquivClass_t ec2) {
+  Cost_t final_cost;
   CpuMemCostVector_t cost_vector;
   CpuMemResVector_t* resource_request =
       FindOrNull(ec_resource_requirement_, ec1);
@@ -173,6 +177,7 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
       static_cast<uint64_t>(rd.available_resources().cpu_cores());
   available_resources.ram_cap_ =
       static_cast<uint64_t>(rd.available_resources().ram_cap());
+  
   uint64_t* index = FindOrNull(ec_to_index_, ec2);
   CHECK_NOTNULL(index);
   uint64_t ec_index = *index;
@@ -210,156 +215,162 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
   // factor needed.
   int64_t balanced_resource_cost = variance * omega_;
   cost_vector.balanced_res_cost_ = balanced_resource_cost;
-
-  // Expressing Node Affinity priority.
-  const TaskDescriptor* td_ptr = FindOrNull(ec_to_td_requirements, ec1);
-  CHECK_NOTNULL(td_ptr);
-  int64_t node_affinity_normalized_score = 0;
-  if (td_ptr->has_affinity()) {
-    const Affinity& affinity = td_ptr->affinity();
-    if (affinity.has_node_affinity()) {
-      if (affinity.node_affinity()
-              .preferredduringschedulingignoredduringexecution_size()) {
-        unordered_map<ResourceID_t, PriorityScoresList_t,
-                      boost::hash<boost::uuids::uuid>>*
-            nodes_priority_scores_ptr =
-                FindOrNull(ec_to_node_priority_scores, ec1);
-        CHECK_NOTNULL(nodes_priority_scores_ptr);
-        PriorityScoresList_t* priority_scores_struct_ptr =
-            FindOrNull(*nodes_priority_scores_ptr, *machine_res_id);
-        CHECK_NOTNULL(priority_scores_struct_ptr);
-        PriorityScore_t& node_affinity_score =
-            priority_scores_struct_ptr->node_affinity_priority;
-        if (node_affinity_score.satisfy) {
-          MinMaxScores_t* max_min_priority_scores =
-              FindOrNull(ec_to_max_min_priority_scores, ec1);
-          CHECK_NOTNULL(max_min_priority_scores);
-          if (node_affinity_score.final_score == -1) {
-            // Normalised node affinity score is not calculated for this
-            // machine, so calculate and store it once.
-            int64_t max_score =
-                max_min_priority_scores->node_affinity_priority.max_score;
-            if (max_score) {
-              node_affinity_normalized_score =
-                  (node_affinity_score.score / (float)(max_score)) * omega_;
-              node_affinity_score.final_score = node_affinity_normalized_score;
+  if(FLAGS_schedule_with_nodes){
+  	//final_cost = FlattenCostVector(cost_vector);
+  	//In this case FLAGS_schedule_with_nodes we will get the cost apart from 
+  	//cpu and mem cost as partial cost. so add that to the final cost
+  	final_cost = 
+  }else {
+    // Expressing Node Affinity priority.
+    const TaskDescriptor* td_ptr = FindOrNull(ec_to_td_requirements, ec1);
+    CHECK_NOTNULL(td_ptr);
+    int64_t node_affinity_normalized_score = 0;
+    if (td_ptr->has_affinity()) {
+      const Affinity& affinity = td_ptr->affinity();
+      if (affinity.has_node_affinity()) {
+        if (affinity.node_affinity()
+                .preferredduringschedulingignoredduringexecution_size()) {
+          unordered_map<ResourceID_t, PriorityScoresList_t,
+                        boost::hash<boost::uuids::uuid>>*
+              nodes_priority_scores_ptr =
+                  FindOrNull(ec_to_node_priority_scores, ec1);
+          CHECK_NOTNULL(nodes_priority_scores_ptr);
+          PriorityScoresList_t* priority_scores_struct_ptr =
+              FindOrNull(*nodes_priority_scores_ptr, *machine_res_id);
+          CHECK_NOTNULL(priority_scores_struct_ptr);
+          PriorityScore_t& node_affinity_score =
+              priority_scores_struct_ptr->node_affinity_priority;
+          if (node_affinity_score.satisfy) {
+            MinMaxScores_t* max_min_priority_scores =
+                FindOrNull(ec_to_max_min_priority_scores, ec1);
+            CHECK_NOTNULL(max_min_priority_scores);
+            if (node_affinity_score.final_score == -1) {
+              // Normalised node affinity score is not calculated for this
+              // machine, so calculate and store it once.
+              int64_t max_score =
+                  max_min_priority_scores->node_affinity_priority.max_score;
+              if (max_score) {
+                node_affinity_normalized_score =
+                    (node_affinity_score.score / (float)(max_score)) * omega_;
+                node_affinity_score.final_score = node_affinity_normalized_score;
+              }
+            } else {
+              // Normalized node affinity score is already calculated, so use it.
+              node_affinity_normalized_score = node_affinity_score.final_score;
             }
-          } else {
-            // Normalized node affinity score is already calculated, so use it.
-            node_affinity_normalized_score = node_affinity_score.final_score;
           }
         }
       }
     }
-  }
-
-  // Expressing pod affinity/anti-affinity priority scores.
-  int64_t pod_affinity_normalized_score = 0;
-  bool pod_affinity_or_anti_affinity_task = false;
-  if (td_ptr->has_affinity() && (td_ptr->affinity().has_pod_affinity() ||
-                                 td_ptr->affinity().has_pod_anti_affinity())) {
-    pod_affinity_or_anti_affinity_task = true;
-  }
-  if ((td_ptr->has_affinity() &&
-       ((td_ptr->affinity().has_pod_affinity() &&
-         td_ptr->affinity()
-             .pod_affinity()
-             .preferredduringschedulingignoredduringexecution_size()) ||
-        (td_ptr->affinity().has_pod_anti_affinity() &&
-         td_ptr->affinity()
-             .pod_anti_affinity()
-             .preferredduringschedulingignoredduringexecution_size()))) ||
-      (ecs_with_pod_antiaffinity_symmetry_.find(ec1) !=
-       ecs_with_pod_antiaffinity_symmetry_.end())) {
+  
+    // Expressing pod affinity/anti-affinity priority scores.
+    int64_t pod_affinity_normalized_score = 0;
+    bool pod_affinity_or_anti_affinity_task = false;
+    if (td_ptr->has_affinity() && (td_ptr->affinity().has_pod_affinity() ||
+                                   td_ptr->affinity().has_pod_anti_affinity())) {
+      pod_affinity_or_anti_affinity_task = true;
+    }
+    if ((td_ptr->has_affinity() &&
+         ((td_ptr->affinity().has_pod_affinity() &&
+           td_ptr->affinity()
+               .pod_affinity()
+               .preferredduringschedulingignoredduringexecution_size()) ||
+          (td_ptr->affinity().has_pod_anti_affinity() &&
+           td_ptr->affinity()
+               .pod_anti_affinity()
+               .preferredduringschedulingignoredduringexecution_size()))) ||
+        (ecs_with_pod_antiaffinity_symmetry_.find(ec1) !=
+         ecs_with_pod_antiaffinity_symmetry_.end())) {
+      unordered_map<ResourceID_t, PriorityScoresList_t,
+                    boost::hash<boost::uuids::uuid>>* nodes_priority_scores_ptr =
+          FindOrNull(ec_to_node_priority_scores, ec1);
+      CHECK_NOTNULL(nodes_priority_scores_ptr);
+      PriorityScoresList_t* priority_scores_struct_ptr =
+          FindOrNull(*nodes_priority_scores_ptr, *machine_res_id);
+      CHECK_NOTNULL(priority_scores_struct_ptr);
+      PriorityScore_t& pod_affinity_score =
+          priority_scores_struct_ptr->pod_affinity_priority;
+      MinMaxScores_t* max_min_priority_scores =
+          FindOrNull(ec_to_max_min_priority_scores, ec1);
+      CHECK_NOTNULL(max_min_priority_scores);
+      if (pod_affinity_score.final_score == -1) {
+        int64_t max_score =
+            max_min_priority_scores->pod_affinity_priority.max_score;
+        int64_t min_score =
+            max_min_priority_scores->pod_affinity_priority.min_score;
+        if ((max_score - min_score) > 0) {
+          pod_affinity_normalized_score =
+              ((pod_affinity_score.score - min_score) / (max_score - min_score)) *
+              omega_;
+        }
+        pod_affinity_score.final_score = pod_affinity_normalized_score;
+      } else {
+        pod_affinity_normalized_score = pod_affinity_score.final_score;
+      }
+    }
+    // Expressing taints/tolerations priority scores
     unordered_map<ResourceID_t, PriorityScoresList_t,
-                  boost::hash<boost::uuids::uuid>>* nodes_priority_scores_ptr =
+                  boost::hash<boost::uuids::uuid>>* taints_priority_scores_ptr =
         FindOrNull(ec_to_node_priority_scores, ec1);
-    CHECK_NOTNULL(nodes_priority_scores_ptr);
+    CHECK_NOTNULL(taints_priority_scores_ptr);
     PriorityScoresList_t* priority_scores_struct_ptr =
-        FindOrNull(*nodes_priority_scores_ptr, *machine_res_id);
+        FindOrNull(*taints_priority_scores_ptr, *machine_res_id);
     CHECK_NOTNULL(priority_scores_struct_ptr);
-    PriorityScore_t& pod_affinity_score =
-        priority_scores_struct_ptr->pod_affinity_priority;
-    MinMaxScores_t* max_min_priority_scores =
-        FindOrNull(ec_to_max_min_priority_scores, ec1);
-    CHECK_NOTNULL(max_min_priority_scores);
-    if (pod_affinity_score.final_score == -1) {
-      int64_t max_score =
-          max_min_priority_scores->pod_affinity_priority.max_score;
-      int64_t min_score =
-          max_min_priority_scores->pod_affinity_priority.min_score;
-      if ((max_score - min_score) > 0) {
-        pod_affinity_normalized_score =
-            ((pod_affinity_score.score - min_score) / (max_score - min_score)) *
-            omega_;
+    PriorityScore_t& taints_score =
+        priority_scores_struct_ptr->intolerable_taints_priority;
+    if (taints_score.satisfy) {
+      MinMaxScores_t* max_min_priority_scores =
+          FindOrNull(ec_to_max_min_priority_scores, ec1);
+      CHECK_NOTNULL(max_min_priority_scores);
+      if (taints_score.final_score == -1) {
+        // Normalised taints score is not calculated for this
+        // machine, so calculate and store it once.
+        int64_t max_score =
+            max_min_priority_scores->intolerable_taints_priority.max_score;
+        if (max_score) {
+          taints_score.final_score =
+              (taints_score.score / (float)(max_score)) * omega_;
+        }
       }
-      pod_affinity_score.final_score = pod_affinity_normalized_score;
     } else {
-      pod_affinity_normalized_score = pod_affinity_score.final_score;
+      taints_score.final_score = 0;
     }
-  }
-  // Expressing taints/tolerations priority scores
-  unordered_map<ResourceID_t, PriorityScoresList_t,
-                boost::hash<boost::uuids::uuid>>* taints_priority_scores_ptr =
-      FindOrNull(ec_to_node_priority_scores, ec1);
-  CHECK_NOTNULL(taints_priority_scores_ptr);
-  PriorityScoresList_t* priority_scores_struct_ptr =
-      FindOrNull(*taints_priority_scores_ptr, *machine_res_id);
-  CHECK_NOTNULL(priority_scores_struct_ptr);
-  PriorityScore_t& taints_score =
-      priority_scores_struct_ptr->intolerable_taints_priority;
-  if (taints_score.satisfy) {
-    MinMaxScores_t* max_min_priority_scores =
-        FindOrNull(ec_to_max_min_priority_scores, ec1);
-    CHECK_NOTNULL(max_min_priority_scores);
-    if (taints_score.final_score == -1) {
-      // Normalised taints score is not calculated for this
-      // machine, so calculate and store it once.
-      int64_t max_score =
-          max_min_priority_scores->intolerable_taints_priority.max_score;
-      if (max_score) {
-        taints_score.final_score =
-            (taints_score.score / (float)(max_score)) * omega_;
-      }
-    }
-  } else {
-    taints_score.final_score = 0;
-  }
- 
-  // Expressing avoid pods priority scores
-  if (rd.avoids_size()) {
-    unordered_map<ResourceID_t, PriorityScoresList_t,
-            boost::hash<boost::uuids::uuid>>* avoid_pods_priority_scores_ptr =
-                                  FindOrNull(ec_to_node_priority_scores, ec1);
-    CHECK_NOTNULL(avoid_pods_priority_scores_ptr);
-    PriorityScoresList_t* avoid_pods_scores_struct_ptr =
-        FindOrNull(*avoid_pods_priority_scores_ptr, *machine_res_id);
-    CHECK_NOTNULL(avoid_pods_scores_struct_ptr);
-    PriorityScore_t& prefer_avoid_pods_score =
-        avoid_pods_scores_struct_ptr->prefer_avoid_pods_priority;
-    cost_vector.prefer_avoid_pods_cost_ = prefer_avoid_pods_score.score;
-  } else {
-    cost_vector.prefer_avoid_pods_cost_ = 0;
-  }
-
-  cost_vector.node_affinity_soft_cost_ =
-      omega_ - node_affinity_normalized_score;
-  cost_vector.pod_affinity_soft_cost_ = omega_ - pod_affinity_normalized_score;
-  cost_vector.intolerable_taints_cost_ = taints_score.final_score;
-
-  Cost_t final_cost = FlattenCostVector(cost_vector);
-  // Added for solver
-  if (pod_affinity_or_anti_affinity_task) {
-    ResourceID_t current_resource_id = ResourceIDFromString(
-        rs->topology_node().children(0).resource_desc().uuid());
-    ResourceID_t* res_id = FindOrNull(ec_to_best_fit_resource_, ec1);
-    if (!res_id) {
-      ec_to_min_cost_[ec1] = final_cost;
-      ec_to_best_fit_resource_[ec1] = current_resource_id;
+   
+    // Expressing avoid pods priority scores
+    if (rd.avoids_size()) {
+      unordered_map<ResourceID_t, PriorityScoresList_t,
+              boost::hash<boost::uuids::uuid>>* avoid_pods_priority_scores_ptr =
+                                    FindOrNull(ec_to_node_priority_scores, ec1);
+      CHECK_NOTNULL(avoid_pods_priority_scores_ptr);
+      PriorityScoresList_t* avoid_pods_scores_struct_ptr =
+          FindOrNull(*avoid_pods_priority_scores_ptr, *machine_res_id);
+      CHECK_NOTNULL(avoid_pods_scores_struct_ptr);
+      PriorityScore_t& prefer_avoid_pods_score =
+          avoid_pods_scores_struct_ptr->prefer_avoid_pods_priority;
+      cost_vector.prefer_avoid_pods_cost_ = prefer_avoid_pods_score.score;
     } else {
-      if (ec_to_min_cost_[ec1] > final_cost) {
+      cost_vector.prefer_avoid_pods_cost_ = 0;
+    }
+  
+    cost_vector.node_affinity_soft_cost_ =
+        omega_ - node_affinity_normalized_score;
+    cost_vector.pod_affinity_soft_cost_ = omega_ - pod_affinity_normalized_score;
+    cost_vector.intolerable_taints_cost_ = taints_score.final_score;
+  
+    final_cost = FlattenCostVector(cost_vector);
+    // Added for solver
+    if (pod_affinity_or_anti_affinity_task) {
+      ResourceID_t current_resource_id = ResourceIDFromString(
+          rs->topology_node().children(0).resource_desc().uuid());
+      ResourceID_t* res_id = FindOrNull(ec_to_best_fit_resource_, ec1);
+      if (!res_id) {
         ec_to_min_cost_[ec1] = final_cost;
         ec_to_best_fit_resource_[ec1] = current_resource_id;
+      } else {
+        if (ec_to_min_cost_[ec1] > final_cost) {
+          ec_to_min_cost_[ec1] = final_cost;
+          ec_to_best_fit_resource_[ec1] = current_resource_id;
+        }
       }
     }
   }
@@ -370,10 +381,15 @@ Cost_t CpuCostModel::FlattenCostVector(CpuMemCostVector_t cv) {
   int64_t accumulator = 0;
   accumulator += cv.cpu_mem_cost_;
   accumulator += cv.balanced_res_cost_;
-  accumulator += cv.node_affinity_soft_cost_;
-  accumulator += cv.pod_affinity_soft_cost_;
-  accumulator += cv.intolerable_taints_cost_;
-  accumulator += cv.prefer_avoid_pods_cost_;
+  if(){
+    accumulator +=	
+  }else {  
+    accumulator += cv.node_affinity_soft_cost_;
+    accumulator += cv.pod_affinity_soft_cost_;
+    accumulator += cv.intolerable_taints_cost_;
+    accumulator += cv.prefer_avoid_pods_cost_;
+  }
+  
   if (accumulator > infinity_) infinity_ = accumulator + 1;
   return accumulator;
 }
@@ -1467,80 +1483,132 @@ vector<EquivClass_t>* CpuCostModel::GetEquivClassToEquivClassesArcs(
     // Added to clear the map before filling the values for each node
     tolerationSoftEqualMap.clear();
     tolerationSoftExistsMap.clear();
-    for (auto& ec_machines : ecs_for_machines_) {
-      ResourceStatus* rs = FindPtrOrNull(*resource_map_, ec_machines.first);
-      CHECK_NOTNULL(rs);
-      const ResourceDescriptor& rd = rs->topology_node().resource_desc();
-      const TaskDescriptor* td_ptr = FindOrNull(ec_to_td_requirements, ec);
-      if (td_ptr) {
-        // Checking whether machine satisfies node selector and node affinity.
-        if (scheduler::SatisfiesNodeSelectorAndNodeAffinity(rd, *td_ptr)) {
-          // Calculate costs for all priorities.
-          CalculatePrioritiesCost(ec, rd);
-        } else
-          continue;
-        // Checking pod affinity/anti-affinity
-        if (SatisfiesPodAffinityAntiAffinityRequired(rd, *td_ptr, ec)) {
-          CalculatePodAffinityAntiAffinityPreference(rd, *td_ptr, ec);
-        } else {
-          continue;
-        }
-        // Check whether taints in the machine has matching tolerations
-        if (scheduler::HasMatchingTolerationforNodeTaints(rd, *td_ptr)) {
-          CalculateIntolerableTaintsCost(rd, td_ptr, ec);
-        } else {
-          continue;
-        }
-        // Checking costs for intolerable taints
-
-        // Checking pod anti-affinity symmetry
-        if (FLAGS_pod_affinity_antiaffinity_symmetry &&
-            (ecs_with_pod_antiaffinity_symmetry_.find(ec) !=
-             ecs_with_pod_antiaffinity_symmetry_.end())) {
-          if (td_ptr->labels_size()) {
-            if (SatisfiesPodAntiAffinitySymmetry(
-                    ResourceIDFromString(rd.uuid()), *td_ptr)) {
-              // Calculate soft constriants score if needed.
-            } else {
-              continue;
+    if(FLAGS_schedule_with_nodes){  
+    	//get the task decriptor, extract job_id.
+    	//job is associated with filtered nodes 
+    	//add this nodes to the pref_ecs
+    	const TaskDescriptor* taskDescPtr = FindOrNull(ec_to_td_requirements, ec);
+    	JobID_t job_id = JobIDFromString(taskDescPtr->job_id());	
+    	for (const auto& job  : node_info_from_schdeule_req->jobs()) {
+    	  if(job_id == JobIDFromString(job.job_id())){
+    	  	for(const auto& nodeInfo : job.node_cost_info()){		
+    		  ResourceID_t res_id = ResourceIDFromString(nodeInfo.res_id());
+    
+    		  //find the RS for filtered node
+    		  ResourceStatus* rs = resource_map_->find(res_id)->second;
+    		  CHECK_NOTNULL(rs);
+    		  const ResourceDescriptor& rd = rs->topology_node().resource_desc();
+    		  
+    		  CpuMemResVector_t available_resources;
+    		  available_resources.cpu_cores_ =
+    		  static_cast<uint64_t>(rd.available_resources().cpu_cores());
+    		  available_resources.ram_cap_ =
+    		  static_cast<uint64_t>(rd.available_resources().ram_cap());
+    		  available_resources.ephemeral_storage_ =
+    		  static_cast<uint64_t>(rd.available_resources().ephemeral_storage());
+    		  
+    		  vector<EquivClass_t>* ecs_for_machine =
+    		  FindOrNull(ecs_for_machines_, res_id);
+    		  CHECK_NOTNULL(ecs_for_machine);
+    		  uint64_t index = 0;
+    		  CpuMemResVector_t cur_resource;
+    		  uint64_t task_count = rd.num_running_tasks_below() +
+    		  knowledge_base_->GetResourceNonFirmamentTaskCount(res_id);
+    		  for (cur_resource = *task_resource_request;
+    		   cur_resource.cpu_cores_ < available_resources.cpu_cores_ &&
+    		   cur_resource.ram_cap_ < available_resources.ram_cap_ &&
+    		   cur_resource.ephemeral_storage_ < available_resources.ephemeral_storage_ &&
+    		   index < ecs_for_machine->size() && task_count < rd.max_pods();
+    		   cur_resource.cpu_cores_ += task_resource_request->cpu_cores_,
+    		   cur_resource.ram_cap_ += task_resource_request->ram_cap_,
+    		   cur_resource.ephemeral_storage_ += task_resource_request->ephemeral_storage_,
+    		   index++, task_count++) {
+    			pref_ecs->push_back((*ecs_for_machine)[index]);
+    			}
+    		  } 
+    
+    	  	  }
+    	  	}else {
+    		  continue;	
+    	  	}
+    	  }	  
+      } else {
+      for (auto& ec_machines : ecs_for_machines_) {
+        ResourceStatus* rs = FindPtrOrNull(*resource_map_, ec_machines.first);
+        CHECK_NOTNULL(rs);
+        const ResourceDescriptor& rd = rs->topology_node().resource_desc();
+        const TaskDescriptor* td_ptr = FindOrNull(ec_to_td_requirements, ec);
+        if (td_ptr) {
+          // Checking whether machine satisfies node selector and node affinity.
+          if (scheduler::SatisfiesNodeSelectorAndNodeAffinity(rd, *td_ptr)) {
+            // Calculate costs for all priorities.
+            CalculatePrioritiesCost(ec, rd);
+          } else
+            continue;
+          // Checking pod affinity/anti-affinity
+          if (SatisfiesPodAffinityAntiAffinityRequired(rd, *td_ptr, ec)) {
+            CalculatePodAffinityAntiAffinityPreference(rd, *td_ptr, ec);
+          } else {
+            continue;
+          }
+          // Check whether taints in the machine has matching tolerations
+          if (scheduler::HasMatchingTolerationforNodeTaints(rd, *td_ptr)) {
+            CalculateIntolerableTaintsCost(rd, td_ptr, ec);
+          } else {
+            continue;
+          }
+          // Checking costs for intolerable taints
+  
+          // Checking pod anti-affinity symmetry
+          if (FLAGS_pod_affinity_antiaffinity_symmetry &&
+              (ecs_with_pod_antiaffinity_symmetry_.find(ec) !=
+               ecs_with_pod_antiaffinity_symmetry_.end())) {
+            if (td_ptr->labels_size()) {
+              if (SatisfiesPodAntiAffinitySymmetry(
+                      ResourceIDFromString(rd.uuid()), *td_ptr)) {
+                // Calculate soft constriants score if needed.
+              } else {
+                continue;
+              }
             }
           }
+  
+          // Calculate prefer avoid pods priority for node
+          if (rd.avoids_size()) {
+            CalculateNodePreferAvoidPodsPriority(rd, *td_ptr, ec);
+          }
         }
-
-        // Calculate prefer avoid pods priority for node
-        if (rd.avoids_size()) {
-          CalculateNodePreferAvoidPodsPriority(rd, *td_ptr, ec);
+        CpuMemResVector_t available_resources;
+        available_resources.cpu_cores_ =
+            static_cast<uint64_t>(rd.available_resources().cpu_cores());
+        available_resources.ram_cap_ =
+            static_cast<uint64_t>(rd.available_resources().ram_cap());
+        available_resources.ephemeral_storage_ =
+            static_cast<uint64_t>(rd.available_resources().ephemeral_storage());
+        ResourceID_t res_id = ResourceIDFromString(rd.uuid());
+        vector<EquivClass_t>* ecs_for_machine =
+            FindOrNull(ecs_for_machines_, res_id);
+        CHECK_NOTNULL(ecs_for_machine);
+        uint64_t index = 0;
+        CpuMemResVector_t cur_resource;
+        uint64_t task_count = rd.num_running_tasks_below() +
+            knowledge_base_->GetResourceNonFirmamentTaskCount(res_id);
+        //TODO(Pratik) : FLAGS_max_tasks_per_pu is treated as equivalent to max-pods,
+        // as max-pods functionality is not yet merged at this point.
+        for (cur_resource = *task_resource_request;
+             cur_resource.cpu_cores_ < available_resources.cpu_cores_ &&
+             cur_resource.ram_cap_ < available_resources.ram_cap_ &&
+             cur_resource.ephemeral_storage_ < available_resources.ephemeral_storage_ &&
+             index < ecs_for_machine->size() && task_count < rd.max_pods();
+             cur_resource.cpu_cores_ += task_resource_request->cpu_cores_,
+            cur_resource.ram_cap_ += task_resource_request->ram_cap_,
+            cur_resource.ephemeral_storage_ += task_resource_request->ephemeral_storage_,
+            index++, task_count++) {
+          pref_ecs->push_back(ec_machines.second[index]);
         }
       }
-      CpuMemResVector_t available_resources;
-      available_resources.cpu_cores_ =
-          static_cast<uint64_t>(rd.available_resources().cpu_cores());
-      available_resources.ram_cap_ =
-          static_cast<uint64_t>(rd.available_resources().ram_cap());
-      available_resources.ephemeral_storage_ =
-          static_cast<uint64_t>(rd.available_resources().ephemeral_storage());
-      ResourceID_t res_id = ResourceIDFromString(rd.uuid());
-      vector<EquivClass_t>* ecs_for_machine =
-          FindOrNull(ecs_for_machines_, res_id);
-      CHECK_NOTNULL(ecs_for_machine);
-      uint64_t index = 0;
-      CpuMemResVector_t cur_resource;
-      uint64_t task_count = rd.num_running_tasks_below() +
-          knowledge_base_->GetResourceNonFirmamentTaskCount(res_id);
-      //TODO(Pratik) : FLAGS_max_tasks_per_pu is treated as equivalent to max-pods,
-      // as max-pods functionality is not yet merged at this point.
-      for (cur_resource = *task_resource_request;
-           cur_resource.cpu_cores_ < available_resources.cpu_cores_ &&
-           cur_resource.ram_cap_ < available_resources.ram_cap_ &&
-           cur_resource.ephemeral_storage_ < available_resources.ephemeral_storage_ &&
-           index < ecs_for_machine->size() && task_count < rd.max_pods();
-           cur_resource.cpu_cores_ += task_resource_request->cpu_cores_,
-          cur_resource.ram_cap_ += task_resource_request->ram_cap_,
-          cur_resource.ephemeral_storage_ += task_resource_request->ephemeral_storage_,
-          index++, task_count++) {
-        pref_ecs->push_back(ec_machines.second[index]);
-      }
-    }
+      
+  }
     if (FLAGS_gather_unscheduled_tasks) {
       if (pref_ecs->size() == 0) {
         // So tasks connected to this task EC will never be scheduled, so populate

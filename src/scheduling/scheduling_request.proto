@@ -1,0 +1,25 @@
+// The Firmament project
+// Copyright (c) The Firmament Authors.
+
+syntax = "proto3";
+
+package firmament;
+
+
+message ScheduleRequest {
+  //Job info is send by poseidon, if this field is empty
+  //process the request in the normal way else handle it.
+  repeated JobInfo jobs = 1;
+}
+
+message JobInfo {
+  string job_id = 1;
+  // list of job associated with the node
+  repeated NodeCostInfo node_cost_info = 2;
+}
+
+message NodeCostInfo {
+  string res_id = 1;
+  // calculated priority score for the node
+  uint64 cost = 2; 
+}

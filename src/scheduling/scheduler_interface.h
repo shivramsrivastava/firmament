@@ -40,6 +40,7 @@
 #include "scheduling/knowledge_base.h"
 #include "scheduling/scheduling_delta.pb.h"
 #include "storage/object_store_interface.h"
+//#include "scheduling/firmament_scheduler.pb.h"
 
 namespace firmament {
 namespace scheduler {
@@ -325,6 +326,8 @@ class SchedulerInterface : public PrintableInterface {
   //Pod affinity/anti-affinity 
   unordered_map<string, unordered_map<string, vector<TaskID_t>>>* labels_map_;
   vector<TaskID_t> *affinity_antiaffinity_tasks_;
+  //filtered node information
+//  ScheduleRequest node_info_from_schedule_req_;
 };
 
 }  // namespace scheduler

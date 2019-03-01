@@ -32,6 +32,9 @@
 #include "base/types.h"
 #include "scheduling/common.h"
 #include "scheduling/flow/flow_graph_node.h"
+//#include "scheduling/firmament_scheduler.pb.h"
+#include "scheduling/scheduling_request.pb.h"                   
+
 
 namespace firmament {
 
@@ -262,8 +265,18 @@ class CostModelInterface {
   virtual void GetUnscheduledTasks(vector<uint64_t>* unscheduled_tasks_ptr) {
   }
 
+  
+ inline void SetNodeInfoFromScheduleReq(ScheduleRequest* node_info) {
+    node_info_from_schdeule_req = node_info;
+ }
+
+ inline void ResetNodeInfoFromSchedulerReq(){
+   node_info_from_schdeule_req = NULL;    
+ }
+ 
  protected:
   shared_ptr<FlowGraphManager> flow_graph_manager_;
+  ScheduleRequest* node_info_from_schdeule_req; 
 };
 
 }  // namespace firmament

@@ -11,6 +11,7 @@ import "base/resource_topology_node_desc.proto";
 import "base/task_desc.proto";
 import "base/task_stats.proto";
 import "scheduling/scheduling_delta.proto";
+import "scheduling/scheduling_request.proto";
 
 service FirmamentScheduler {
   rpc Schedule (ScheduleRequest) returns (SchedulingDeltas) {}
@@ -33,7 +34,6 @@ service FirmamentScheduler {
   rpc AddTaskInfo (TaskInfo) returns (TaskInfoResponse);
 }
 
-message ScheduleRequest {}
 
 message SchedulingDeltas {
   repeated SchedulingDelta deltas = 1;
