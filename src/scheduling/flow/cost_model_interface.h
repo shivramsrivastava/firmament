@@ -172,6 +172,12 @@ class CostModelInterface {
   virtual void RemoveTaskFromTaskSymmetryMap(TaskDescriptor* td_ptr) {}
 
   /**
+   * Update namespaces entry in resource namespaces map.
+   */
+  virtual void UpdateResourceToNamespacesMap(ResourceID_t res_id,
+                                             string task_namespace, bool add) {}
+
+  /**
    * Removes EC from EC to pod symmetry map.
    */
   virtual void RemoveECFromPodSymmetryMap(EquivClass_t ec) {}

@@ -427,6 +427,11 @@ void FlowScheduler::HandleTaskCompletion(TaskDescriptor* td_ptr,
   if (FLAGS_pod_affinity_antiaffinity_symmetry) {
     cost_model_->RemoveTaskFromTaskSymmetryMap(td_ptr);
   }
+  if (!td_ptr->scheduled_to_resource().empty()) {
+    ResourceID_t res_id = ResourceIDFromString(td_ptr->scheduled_to_resource());
+    cost_model_->UpdateResourceToNamespacesMap(res_id,
+                                           td_ptr->task_namespace(), false);
+  }
   // We first call into the superclass handler because it populates
   // the task report. The report might be used by the cost models.
   EventDrivenScheduler::HandleTaskCompletion(td_ptr, report);
@@ -442,11 +447,13 @@ void FlowScheduler::HandleTaskCompletion(TaskDescriptor* td_ptr,
 void FlowScheduler::HandleTaskEviction(TaskDescriptor* td_ptr,
                                        ResourceDescriptor* rd_ptr) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
-  flow_graph_manager_->TaskEvicted(td_ptr->uid(),
-                                   ResourceIDFromString(rd_ptr->uuid()));
+  ResourceID_t res_id = ResourceIDFromString(rd_ptr->uuid());
+  flow_graph_manager_->TaskEvicted(td_ptr->uid(), res_id);
   if (FLAGS_pod_affinity_antiaffinity_symmetry) {
     cost_model_->RemoveTaskFromTaskSymmetryMap(td_ptr);
   }
+  cost_model_->UpdateResourceToNamespacesMap(res_id,
+                                           td_ptr->task_namespace(), false);
   EventDrivenScheduler::HandleTaskEviction(td_ptr, rd_ptr);
 }
 
@@ -456,6 +463,11 @@ void FlowScheduler::HandleTaskFailure(TaskDescriptor* td_ptr) {
   // pod affinity/anti-affinity symmetry
   if (FLAGS_pod_affinity_antiaffinity_symmetry) {
     cost_model_->RemoveTaskFromTaskSymmetryMap(td_ptr);
+  }
+  if (!td_ptr->scheduled_to_resource().empty()) {
+    ResourceID_t res_id = ResourceIDFromString(td_ptr->scheduled_to_resource());
+    cost_model_->UpdateResourceToNamespacesMap(res_id,
+                                           td_ptr->task_namespace(), false);
   }
   EventDrivenScheduler::HandleTaskFailure(td_ptr);
 }
@@ -500,8 +512,8 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
                                         ResourceDescriptor* rd_ptr) {
   boost::lock_guard<boost::recursive_mutex> lock(scheduling_lock_);
   td_ptr->set_scheduled_to_resource(rd_ptr->uuid());
-  flow_graph_manager_->TaskScheduled(td_ptr->uid(),
-                                     ResourceIDFromString(rd_ptr->uuid()));
+  ResourceID_t res_id = ResourceIDFromString(rd_ptr->uuid());
+  flow_graph_manager_->TaskScheduled(td_ptr->uid(), res_id);
   // Pod affinity/anti-affinity
   if (td_ptr->has_affinity() && (td_ptr->affinity().has_pod_affinity() ||
                                  td_ptr->affinity().has_pod_anti_affinity())) {
@@ -513,9 +525,11 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
     }
     // pod affinity/anti-affinity symmetry
     if (FLAGS_pod_affinity_antiaffinity_symmetry) {
-      cost_model_->UpdateResourceToTaskSymmetryMap(ResourceIDFromString(rd_ptr->uuid()), td_ptr->uid());
+      cost_model_->UpdateResourceToTaskSymmetryMap(res_id, td_ptr->uid());
     }
   }
+  cost_model_->UpdateResourceToNamespacesMap(res_id,
+                                             td_ptr->task_namespace(), true);
   EventDrivenScheduler::HandleTaskPlacement(td_ptr, rd_ptr);
 }
 
@@ -525,6 +539,11 @@ void FlowScheduler::HandleTaskRemoval(TaskDescriptor* td_ptr) {
   // pod affinity/anti-affinity symmetry
   if (FLAGS_pod_affinity_antiaffinity_symmetry) {
     cost_model_->RemoveTaskFromTaskSymmetryMap(td_ptr);
+  }
+  if (!td_ptr->scheduled_to_resource().empty()) {
+    ResourceID_t res_id = ResourceIDFromString(td_ptr->scheduled_to_resource());
+    cost_model_->UpdateResourceToNamespacesMap(res_id,
+                                           td_ptr->task_namespace(), false);
   }
   EventDrivenScheduler::HandleTaskRemoval(td_ptr);
 }
