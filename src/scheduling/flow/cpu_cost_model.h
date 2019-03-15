@@ -167,6 +167,8 @@ class CpuCostModel : public CostModelInterface {
   bool CheckPodAffinityAntiAffinitySymmetryConflict(TaskDescriptor* td_ptr);
   void UpdateResourceToTaskSymmetryMap(ResourceID_t res_id, TaskID_t td);
   void RemoveTaskFromTaskSymmetryMap(TaskDescriptor* td_ptr);
+  void UpdateResourceToNamespacesMap(ResourceID_t res_id,
+                                     string task_namespace, bool add);
   void RemoveECFromPodSymmetryMap(EquivClass_t ec);
   bool SatisfiesSymmetryMatchExpression(
       unordered_multimap<string, string> task_labels,
@@ -241,13 +243,6 @@ class CpuCostModel : public CostModelInterface {
     CHECK_NOTNULL(td);
     return *td;
   }
-  inline bool HasNamespace(const string name) {
-    if (namespaces.find(name) == namespaces.end()) {
-      return false;
-    } else {
-      return true;
-    }
-  }
 
   shared_ptr<ResourceMap_t> resource_map_;
   // The task map used in the rest of the system
@@ -273,9 +268,11 @@ class CpuCostModel : public CostModelInterface {
   unordered_map<EquivClass_t, MinMaxScores_t> ec_to_max_min_priority_scores;
   // Pod affinity/anti-affinity
   unordered_map<string, unordered_map<string, vector<TaskID_t>>>* labels_map_;
-  unordered_set<string> namespaces;
+  unordered_map<ResourceID_t, vector<string>, boost::hash<ResourceID_t>>
+                                                      resource_to_namespaces_;
   // Pod affinity/anti-affinity symmetry
-  unordered_map<ResourceID_t, vector<TaskID_t>, boost::hash<ResourceID_t>> resource_to_task_symmetry_map_;
+  unordered_map<ResourceID_t, vector<TaskID_t>, boost::hash<ResourceID_t>> 
+                                                resource_to_task_symmetry_map_;
   unordered_set<EquivClass_t> ecs_with_pod_antiaffinity_symmetry_;
   unordered_map<EquivClass_t, ResourceID_t> ec_to_best_fit_resource_;
   unordered_map<EquivClass_t, Cost_t> ec_to_min_cost_;

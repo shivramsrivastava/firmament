@@ -145,6 +145,20 @@ class EventDrivenScheduler : public SchedulerInterface {
                 bool local,
                 bool simulated);
   bool UnbindTaskFromResource(TaskDescriptor* td_ptr, ResourceID_t res_id);
+  void AddPodAffinityAntiAffinityJobData(JobDescriptor* jd_ptr);
+  bool MatchExpressionWithPodLabels(unordered_map<string, string>& labels,
+                                 const LabelSelectorRequirement& expression);
+  bool NotMatchExpressionWithPodLabels(unordered_map<string, string>& labels,
+                                 const LabelSelectorRequirement& expression);
+  bool MatchExpressionKeyWithPodLabels(unordered_map<string, string>& labels,
+                                 const LabelSelectorRequirement& expression);
+  bool NotMatchExpressionKeyWithPodLabels(unordered_map<string, string>& labels,
+                                 const LabelSelectorRequirement& expression);
+  bool CheckPodAffinityNoConflictWithin(TaskDescriptor* td_ptr,
+                                      TaskDescriptor* other_rtd);
+  bool CheckPodAntiAffinityNoConflictWithin(TaskDescriptor* rtd,
+                                          TaskDescriptor* other_rtd);
+  unordered_set<TaskID_t>* GetNoConflictTasksSet();
 
   // Cached sets of runnable and blocked tasks; these are updated on each
   // execution of LazyGraphReduction. Note that this set includes tasks from all
@@ -194,6 +208,11 @@ class EventDrivenScheduler : public SchedulerInterface {
   // Pod affinity/anti-affinity gang schedule tasks deltas
   unordered_map<JobDescriptor*, vector<SchedulingDelta>> affinity_job_to_deltas_;
   unordered_set<uint64_t> affinity_delta_tasks;
+  unordered_set<TaskID_t> no_conflict_root_tasks_;
+  bool affinity_batch_schedule;
+  unordered_map<TaskID_t, vector<TaskID_t>> no_conflict_tasks_map_;
+  unordered_map<TaskID_t, TaskID_t> no_conflict_task_mapped_;
+  unordered_map<TaskID_t, unordered_set<TaskID_t>> root_to_children_tasks_;
 };
 
 }  // namespace scheduler

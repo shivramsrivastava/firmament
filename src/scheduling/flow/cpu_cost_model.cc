@@ -756,7 +756,6 @@ bool CpuCostModel::MatchExpressionWithPodLabels(
         for (auto task_id : *labels_map_tasks) {
           TaskDescriptor* tdp = FindPtrOrNull(*task_map_, task_id);
           if (tdp) {
-            if (!HasNamespace(tdp->task_namespace())) continue;
             if (tdp->state() == TaskDescriptor::RUNNING) {
               ResourceID_t pu_res_id =
                   ResourceIDFromString(tdp->scheduled_to_resource());
@@ -776,7 +775,6 @@ bool CpuCostModel::MatchExpressionWithPodLabels(
 
 bool CpuCostModel::NotMatchExpressionWithPodLabels(
     const ResourceDescriptor& rd, const LabelSelectorRequirement& expression) {
-  bool namespace_match = false;
   unordered_map<string, vector<TaskID_t>>* label_values =
       FindOrNull(*labels_map_, expression.key());
   if (label_values) {
@@ -796,12 +794,10 @@ bool CpuCostModel::NotMatchExpressionWithPodLabels(
               }
             }
           }
-          if (HasNamespace(tdp->task_namespace())) namespace_match = true;
         }
       }
     }
   }
-  if (namespace_match == false) return false;
   return true;
 }
 
@@ -814,7 +810,6 @@ bool CpuCostModel::MatchExpressionKeyWithPodLabels(
       for (auto task_id : it->second) {
         TaskDescriptor* tdp = FindPtrOrNull(*task_map_, task_id);
         if (tdp) {
-          if (!HasNamespace(tdp->task_namespace())) continue;
           if (tdp->state() == TaskDescriptor::RUNNING) {
             ResourceID_t pu_res_id =
                 ResourceIDFromString(tdp->scheduled_to_resource());
@@ -833,7 +828,6 @@ bool CpuCostModel::MatchExpressionKeyWithPodLabels(
 
 bool CpuCostModel::NotMatchExpressionKeyWithPodLabels(
     const ResourceDescriptor& rd, const LabelSelectorRequirement& expression) {
-  bool namespace_match = false;
   unordered_map<string, vector<TaskID_t>>* label_values =
       FindOrNull(*labels_map_, expression.key());
   if (label_values) {
@@ -851,11 +845,9 @@ bool CpuCostModel::NotMatchExpressionKeyWithPodLabels(
             }
           }
         }
-        if (HasNamespace(tdp->task_namespace())) namespace_match = true;
       }
     }
   }
-  if (namespace_match == false) return false;
   return true;
 }
 
@@ -927,14 +919,51 @@ bool CpuCostModel::SatisfiesPodAffinityMatchExpressions(
   return true;
 }
 
+void CpuCostModel::UpdateResourceToNamespacesMap(ResourceID_t res_id,
+                                                 string task_namespace,
+                                                 bool add) {
+  ResourceID_t machine_res_id = MachineResIDForResource(res_id);
+  vector<string>* task_namespaces =
+                  FindOrNull(resource_to_namespaces_, machine_res_id);
+  if (add) {
+    if (task_namespaces) {
+      task_namespaces->push_back(task_namespace);
+    } else {
+      vector<string> t_namespaces;
+      t_namespaces.push_back(task_namespace);
+      InsertIfNotPresent(&resource_to_namespaces_, machine_res_id,
+                                                   t_namespaces);
+    }
+  } else {
+    if (task_namespaces) {
+      vector<string>::iterator it = find(task_namespaces->begin(),
+                                        task_namespaces->end(), task_namespace);
+      if (it != task_namespaces->end()) {
+        task_namespaces->erase(it);
+      }
+    }
+  }
+}
+
 bool CpuCostModel::SatisfiesPodAntiAffinityTerm(
     const ResourceDescriptor& rd, const TaskDescriptor& td,
     const PodAffinityTermAntiAff& term) {
-  if (!term.namespaces_size()) {
-    namespaces.insert(td.task_namespace());
-  } else {
-    for (auto name : term.namespaces()) {
-      namespaces.insert(name);
+  ResourceID_t machine_res_id =
+               MachineResIDForResource(ResourceIDFromString(rd.uuid()));
+  vector<string>* res_namespaces =
+                  FindOrNull(resource_to_namespaces_, machine_res_id);
+  if (res_namespaces) {
+    if (!term.namespaces_size()) {
+      auto it = find(res_namespaces->begin(), res_namespaces->end(),
+                                              td.task_namespace());
+      if (it != res_namespaces->end()) {
+        return false;
+      }
+    } else {
+      for (auto name : term.namespaces()) {
+        auto it = find(res_namespaces->begin(), res_namespaces->end(), name);
+        if (it != res_namespaces->end()) return false;
+      }
     }
   }
   if (term.has_labelselector()) {
@@ -944,19 +973,37 @@ bool CpuCostModel::SatisfiesPodAntiAffinityTerm(
         return false;
     }
   }
-  namespaces.clear();
   return true;
 }
 
 bool CpuCostModel::SatisfiesPodAffinityTerm(const ResourceDescriptor& rd,
                                             const TaskDescriptor& td,
                                             const PodAffinityTerm& term) {
-  if (!term.namespaces_size()) {
-    namespaces.insert(td.task_namespace());
-  } else {
-    for (auto name : term.namespaces()) {
-      namespaces.insert(name);
+  ResourceID_t machine_res_id =
+               MachineResIDForResource(ResourceIDFromString(rd.uuid()));
+  vector<string>* res_namespaces =
+                  FindOrNull(resource_to_namespaces_, machine_res_id);
+  if (res_namespaces) {
+    vector<string> namespaces;
+    if (!term.namespaces_size()) {
+      auto it = find(res_namespaces->begin(), res_namespaces->end(),
+                                              td.task_namespace());
+      if (it == res_namespaces->end()) {
+        return false;
+      }
+    } else {
+      bool namespace_found = false;
+      for (auto name : term.namespaces()) {
+        auto it = find(res_namespaces->begin(), res_namespaces->end(), name);
+        if (it != res_namespaces->end()) {
+          namespace_found = true;
+          break;
+        }
+      }
+      if (!namespace_found) return false;
     }
+  } else {
+    return false;
   }
   if (term.has_labelselector()) {
     if (term.labelselector().matchexpressions_size()) {
@@ -965,7 +1012,6 @@ bool CpuCostModel::SatisfiesPodAffinityTerm(const ResourceDescriptor& rd,
         return false;
     }
   }
-  namespaces.clear();
   return true;
 }
 
@@ -1361,6 +1407,7 @@ bool CpuCostModel::SatisfiesPodAffinitySymmetryTerm(
     const TaskDescriptor& td, const TaskDescriptor& target_td,
     unordered_multimap<string, string> task_labels,
     const PodAffinityTerm& term) {
+  unordered_set<string> namespaces;
   if (!term.namespaces_size()) {
     namespaces.insert(target_td.task_namespace());
   } else {
@@ -1368,7 +1415,7 @@ bool CpuCostModel::SatisfiesPodAffinitySymmetryTerm(
       namespaces.insert(name);
     }
   }
-  if (!HasNamespace(td.task_namespace())) {
+  if (namespaces.find(td.task_namespace()) == namespaces.end()) {
     return false;
   }
   if (term.has_labelselector()) {
@@ -1379,7 +1426,6 @@ bool CpuCostModel::SatisfiesPodAffinitySymmetryTerm(
       }
     }
   }
-  namespaces.clear();
   return true;
 }
 
@@ -1387,6 +1433,7 @@ bool CpuCostModel::SatisfiesPodAntiAffinitySymmetryTerm(
     const TaskDescriptor& td, const TaskDescriptor& target_td,
     unordered_multimap<string, string> task_labels,
     const PodAffinityTermAntiAff term) {
+  unordered_set<string> namespaces;
   if (!term.namespaces_size()) {
     namespaces.insert(target_td.task_namespace());
   } else {
@@ -1394,7 +1441,7 @@ bool CpuCostModel::SatisfiesPodAntiAffinitySymmetryTerm(
       namespaces.insert(name);
     }
   }
-  if (HasNamespace(td.task_namespace())) {
+  if (namespaces.find(td.task_namespace()) != namespaces.end()) {
     return false;
   }
   if (term.has_labelselector()) {
@@ -1405,7 +1452,6 @@ bool CpuCostModel::SatisfiesPodAntiAffinitySymmetryTerm(
       }
     }
   }
-  namespaces.clear();
   return true;
 }
 

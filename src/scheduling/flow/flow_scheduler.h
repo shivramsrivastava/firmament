@@ -91,6 +91,9 @@ class FlowScheduler : public EventDrivenScheduler {
                                 bool local,
                                 bool simulated);
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats);
+  virtual vector<TaskID_t>* ScheduleAllAffinityBatchJobs(
+                                      SchedulerStats* scheduler_stats,
+                                      vector<SchedulingDelta>* deltas);
   virtual uint64_t ScheduleAllQueueJobs(SchedulerStats* scheduler_stats,
                                         vector<SchedulingDelta>* deltas);
   virtual void UpdateGangSchedulingDeltas(
@@ -99,6 +102,7 @@ class FlowScheduler : public EventDrivenScheduler {
                      vector<uint64_t>* unscheduled_normal_tasks,
                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                      vector<uint64_t>* unscheduled_affinity_tasks);
+  virtual void UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr);
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats,
                                    vector<SchedulingDelta>* deltas);
   virtual uint64_t ScheduleJob(JobDescriptor* jd_ptr,
@@ -122,7 +126,9 @@ class FlowScheduler : public EventDrivenScheduler {
   }
 
   TaskID_t GetSingleTaskTobeScheduled() {
-    return task_to_be_scheduled_;
+    TaskID_t task_id = task_to_be_scheduled_;
+    task_to_be_scheduled_ = 0;
+    return task_id;
   }
  protected:
   virtual void HandleTaskMigration(TaskDescriptor* td_ptr,
@@ -143,6 +149,9 @@ class FlowScheduler : public EventDrivenScheduler {
   void UpdateCostModelResourceStats();
   void AddKnowledgeBaseResourceStats(TaskDescriptor* td_ptr,
                                                  ResourceStatus* rs);
+  void UpdateBatchAffinityTasksMap();
+  void RemoveAffinityAntiAffinityJobData(JobID_t job_id);
+  bool CheckAllTasksInJobRunning(TaskDescriptor* rtd);
 
   // Pointer to the coordinator's topology manager
   shared_ptr<TopologyManager> topology_manager_;
@@ -170,6 +179,7 @@ class FlowScheduler : public EventDrivenScheduler {
   unordered_set<ResourceTopologyNodeDescriptor*> resource_roots_;
   // Single task that needs to scheduled in queue based scheduling round.
   TaskID_t task_to_be_scheduled_;
+  unordered_set<TaskID_t> affinity_batch_job_schedule_;
 };
 
 }  // namespace scheduler

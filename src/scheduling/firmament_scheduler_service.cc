@@ -272,14 +272,22 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     // Schedule tasks which does not have pod affinity/anti-affinity
     // requirements.
     scheduler_->ScheduleAllJobs(&sstat, &deltas);
+
     uint64_t total_unsched_tasks_size = 0;
-    vector<uint64_t> unscheduled_normal_tasks;
+    vector<uint64_t> unscheduled_batch_tasks;
     if (FLAGS_gather_unscheduled_tasks) {
       // Get unscheduled tasks of above scheduling round.
-      cost_model_->GetUnscheduledTasks(&unscheduled_normal_tasks);
+      cost_model_->GetUnscheduledTasks(&unscheduled_batch_tasks);
     }
+    // [pod affinity/anti-affinity batch schedule]
+    vector<TaskID_t>* unsched_batch_affinity_tasks =
+                  scheduler_->ScheduleAllAffinityBatchJobs(&sstat, &deltas);
+    for (auto unsched_batch_affinity_task : *unsched_batch_affinity_tasks) {
+      unscheduled_batch_tasks.push_back(unsched_batch_affinity_task);
+    }
+    delete unsched_batch_affinity_tasks;
 
-    // Schedule tasks having pod affinity/anti-affinity.
+    // Queue schedule tasks having pod affinity/anti-affinity.
     clock_t start = clock();
     uint64_t elapsed = 0;
     unordered_set<uint64_t> unscheduled_affinity_tasks_set;
@@ -292,37 +300,36 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
                              ->GetSingleTaskTobeScheduled();
       if (FLAGS_gather_unscheduled_tasks) {
         TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
-        CHECK_NOTNULL(td_ptr);
-        JobDescriptor* jd =
+        if (td_ptr) {
+          JobDescriptor* jd =
                   FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
-        if (!(jd->is_gang_scheduling_job())) {
-          if (!task_scheduled) {
-            if (unscheduled_affinity_tasks_set.find(task_id) ==
-                unscheduled_affinity_tasks_set.end()) {
-              unscheduled_affinity_tasks_set.insert(task_id);
-              unscheduled_affinity_tasks.push_back(task_id);
+          if (!(jd->is_gang_scheduling_job())) {
+            if (!task_scheduled) {
+              if (unscheduled_affinity_tasks_set.find(task_id) ==
+                                    unscheduled_affinity_tasks_set.end()) {
+                unscheduled_affinity_tasks_set.insert(task_id);
+                unscheduled_affinity_tasks.push_back(task_id);
+              }
+            } else {
+              unscheduled_affinity_tasks_set.erase(task_id);
             }
-          } else {
-            unscheduled_affinity_tasks_set.erase(task_id);
           }
         }
       }
       clock_t stop = clock();
       elapsed = (double)(stop - start) * 1000.0 / CLOCKS_PER_SEC;
     }
-    //For pod affinity/anti-affinity gang scheduling tasks
     scheduler_->UpdateGangSchedulingDeltas(&sstat, &deltas,
-                                &unscheduled_normal_tasks,
+                                &unscheduled_batch_tasks,
                                 &unscheduled_affinity_tasks_set,
                                 &unscheduled_affinity_tasks);
-
     // Get unscheduled tasks of above scheduling round which tried scheduling
     // tasks having pod affinity/anti-affinity. And populate the same into
     // reply.
     if (FLAGS_gather_unscheduled_tasks) {
-      auto unscheduled_normal_tasks_ret = reply->mutable_unscheduled_tasks();
-      for (auto& unsched_task : unscheduled_normal_tasks) {
-        uint64_t* unsched_task_ret = unscheduled_normal_tasks_ret->Add();
+      auto unscheduled_batch_tasks_ret = reply->mutable_unscheduled_tasks();
+      for (auto& unsched_task : unscheduled_batch_tasks) {
+        uint64_t* unsched_task_ret = unscheduled_batch_tasks_ret->Add();
         *unsched_task_ret = unsched_task;
         total_unsched_tasks_size++;
       }
@@ -523,7 +530,13 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     }
     if (td.has_affinity() && (td.affinity().has_pod_affinity() ||
                               td.affinity().has_pod_anti_affinity())) {
-      affinity_antiaffinity_tasks_.push_back(task_id);
+      unordered_set<TaskID_t>* no_conflict_tasks =
+                               scheduler_->GetNoConflictTasksSet();
+      JobID_t job_id = JobIDFromString(td.job_id());
+      JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);
+      if (no_conflict_tasks->find(jd_ptr->root_task().uid()) == no_conflict_tasks->end()) {
+        affinity_antiaffinity_tasks_.push_back(task_id);
+      }
     }
   }
 
@@ -541,7 +554,6 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(TaskReplyType::TASK_STATE_NOT_CREATED);
       return Status::OK;
     }
-    AddTaskToLabelsMap(task_desc_ptr->task_descriptor());
     JobID_t job_id = JobIDFromString(task_desc_ptr->task_descriptor().job_id());
     JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);
     if (jd_ptr == NULL) {
@@ -562,6 +574,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       td_ptr->CopyFrom(task_desc_ptr->task_descriptor());
       CHECK(InsertIfNotPresent(task_map_.get(), td_ptr->uid(), td_ptr));
       td_ptr->set_submit_time(wall_time_.GetCurrentTimestamp());
+      scheduler_->UpdateSpawnedToRootTaskMap(td_ptr);
     }
     uint64_t* num_incomplete_tasks =
         FindOrNull(job_num_incomplete_tasks_, job_id);
@@ -569,6 +582,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     if (*num_incomplete_tasks == 0) {
       scheduler_->AddJob(jd_ptr);
     }
+    AddTaskToLabelsMap(task_desc_ptr->task_descriptor());
     (*num_incomplete_tasks)++;
     uint64_t* num_tasks_to_remove =
         FindOrNull(job_num_tasks_to_remove_, job_id);
