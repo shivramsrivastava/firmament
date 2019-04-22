@@ -10,7 +10,10 @@ import "base/resource_stats.proto";
 import "base/resource_topology_node_desc.proto";
 import "base/task_desc.proto";
 import "base/task_stats.proto";
+import "base/queue_desc.proto";
+import "base/pod_group_desc.proto";
 import "scheduling/scheduling_delta.proto";
+
 
 service FirmamentScheduler {
   rpc Schedule (ScheduleRequest) returns (SchedulingDeltas) {}
@@ -31,7 +34,15 @@ service FirmamentScheduler {
 
   rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
   rpc AddTaskInfo (TaskInfo) returns (TaskInfoResponse);
-}
+
+  rpc QueueAdded(QueueDescriptor) returns(QueueAddedResponse) {}
+  rpc QueueUpdated(QueueDescriptor) returns(QueueUpdateResponse) {}
+  rpc QueueRemoved(QueueDescriptor) returns(QueueRemoveResponse) {}
+
+  rpc PodGroupAdded(PodGroupDescriptor) returns(PodGroupAddedResponse) {}
+  rpc PodGroupRemoved(PodGroupDescriptor) returns(PodGroupRemoveResponse) {}
+  rpc PodGroupUpdated(PodGroupDescriptor) returns(PodGroupUpdateResponse) {}
+  }
 
 message ScheduleRequest {}
 
@@ -160,3 +171,46 @@ message TaskInfoResponse {
   TaskInfoReplyType type = 1;
 }
 
+message QueueAddedResponse{
+  QueueReplyType type = 1;
+}
+
+message QueueUpdateResponse{
+  QueueReplyType type = 1;
+}
+
+message QueueRemoveResponse{
+	QueueReplyType type = 1;
+}
+  
+enum QueueReplyType {
+  QUEUE_ADDED_OK = 0;
+  QUEUE_UPDATED_OK = 1;
+  QUEUE_REMOVED_OK = 2;
+  QUEUE_FAILED_OK = 3;
+  QUEUE_ALREADY_ADDED = 4;
+  QUEUE_NOT_FOUND = 5;
+  QUEUE_INVALID_OK = 6;
+}
+
+message PodGroupAddedResponse{
+  PodGroupReplyType type = 1;
+}
+
+message PodGroupUpdateResponse{
+  PodGroupReplyType type = 1;
+}
+
+message PodGroupRemoveResponse{
+	PodGroupReplyType type = 1;
+}
+  
+enum PodGroupReplyType {
+  PODGROUP_ADDED_OK = 0;
+  PODGROUP_UPDATED_OK = 1;
+  PODGROUP_REMOVED_OK = 2;
+  PODGROUP_FAILED_OK = 3;
+  PODGROUP_ALREADY_ADDED = 4;
+  PODGROUP_NOT_FOUND = 5;
+  PODGROUP_INVALID_OK = 6;
+}

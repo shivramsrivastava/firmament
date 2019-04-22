@@ -41,8 +41,41 @@
 #include "base/task_final_report.pb.h"
 #include "base/task_stats.pb.h"
 #include "scheduling/data_layer_manager_interface.h"
+#include "scheduling/proportion_queue.h"
+
 
 namespace firmament {
+/*
+struct ResourceCapacity {
+  int64_t cpu_core_capacity;
+  int64_t ram_capacity;
+  int64_t ephemeral_capacity;
+};
+
+struct ResourceAllocatable {
+  int64_t cpu_core_allocatable;
+  int64_t ram_allocatable;
+  int64_t ephemeral_allocatable;
+};
+
+struct ResourceStatsAggregate {
+  ResourceCapacity resource_capcity;
+  ResourceAllocatable resource_allocatable;
+};
+
+struct Resource_Available {
+	double CPU_Resource;
+	double Memory_Resource;
+	double Ephemeral_Resource;
+};
+
+class Queue_Proportion {
+	Resource_Available Deserved_Resource;
+	Resource_Available Allocated_Resource;
+	Resource_Available Requested_Resource;
+	
+};
+*/
 
 class KnowledgeBase {
  public:
@@ -75,7 +108,13 @@ class KnowledgeBase {
     CHECK_NOTNULL(data_layer_manager_);
     return data_layer_manager_;
   }
-
+  
+  void AddToResourceStatsAgg(ResourceStatsAggregate &resStatus);
+  void DeductFromResourceStatsAgg(ResourceStatsAggregate &resStatus);
+  inline ResourceStatsAggregate& GetResourceStatsAgg() {
+  return resource_stats_;
+  }
+  
  protected:
   unordered_map<ResourceID_t, deque<ResourceStats>,
       boost::hash<boost::uuids::uuid> > machine_map_;
@@ -95,6 +134,8 @@ class KnowledgeBase {
   ::google::protobuf::io::ZeroCopyOutputStream* raw_task_output_;
   ::google::protobuf::io::CodedOutputStream* coded_task_output_;
   DataLayerManagerInterface* data_layer_manager_;
+  //total value of resource allocatable and capcity
+  ResourceStatsAggregate resource_stats_;
 };
 
 }  // namespace firmament

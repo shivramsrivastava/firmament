@@ -39,6 +39,12 @@
 #include "scheduling/scheduling_delta.pb.h"
 #include "scheduling/simple/simple_scheduler.h"
 #include "storage/simple_object_store.h"
+#include "scheduling/proportion_queue.h"
+#include "base/pod_group_desc.pb.h"
+#include "scheduling/firmament_scheduler_service_utils.h"
+
+
+
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -78,6 +84,11 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         ResourceIDFromString(top_level_res_status->descriptor().uuid());
     sim_messaging_adapter_ = new SimulatedMessagingAdapter<BaseMessage>();
     trace_generator_ = new TraceGenerator(&wall_time_);
+		queue_map_.reset(new QueueMap_t);
+		
+		firmament_scheduler_serivice_utils_ =  Firmament_Scheduler_Service_Utils::Instance();
+
+
     if (FLAGS_service_scheduler == "flow") {
       scheduler_ = new FlowScheduler(
           job_map_, resource_map_,
@@ -100,13 +111,14 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     }
 
     kb_populator_ = new KnowledgeBasePopulator(knowledge_base_);
+		
   }
 
   ~FirmamentSchedulerServiceImpl() {
     delete scheduler_;
     delete sim_messaging_adapter_;
     delete trace_generator_;
-    delete kb_populator_;
+    delete kb_populator_;		
   }
 
   void HandlePlacementDelta(const SchedulingDelta& delta) {
@@ -267,6 +279,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     if (FLAGS_gather_unscheduled_tasks) {
       cost_model_->ClearUnscheduledTasksData();
     }
+
     SchedulerStats sstat;
     vector<SchedulingDelta> deltas;
     // Schedule tasks which does not have pod affinity/anti-affinity
@@ -413,6 +426,37 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(TaskReplyType::TASK_JOB_NOT_FOUND);
       return Status::OK;
     }
+		
+		//*** TBD flag for gang scheduling		
+		//remove the task from the task to podgroup
+		unordered_map<TaskID_t, string>* task_to_pod_group =
+			firmament_scheduler_serivice_utils_->GetTaskToPodGroupMap();
+		string* pod_group_name = FindOrNull(*task_to_pod_group, tid_ptr->task_uid());
+		task_to_pod_group->erase(tid_ptr->task_uid());
+		//deduct the resources of task from the allocated
+		//1.get the pod group name 2. then get allocated value and deduct value
+		
+		//insert the element with pod group name and resource allocated by it.
+		unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+		firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+		Resource_Allocated* allocted_resource =
+			FindOrNull(*pgToResourceAllocted, *pod_group_name);
+
+		if(allocted_resource != NULL) {
+
+			allocted_resource->cpu_resource -= 
+				td_ptr->resource_request().cpu_cores();
+			allocted_resource->memory_resource -= 
+				td_ptr->resource_request().ram_cap();
+			allocted_resource->ephemeral_resource -= 
+				td_ptr->resource_request().ephemeral_storage();
+
+		}	else { //do nothing
+		
+		}
+
+		//*** TBD flag for gang scheduling ends here
+
     td_ptr->set_finish_time(wall_time_.GetCurrentTimestamp());
     RemoveTaskFromLabelsMap(*td_ptr);
     TaskFinalReport report;
@@ -439,6 +483,38 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(TaskReplyType::TASK_NOT_FOUND);
       return Status::OK;
     }
+
+		//*** TBD flag for gang scheduling		
+		//remove the task from the task to podgroup
+		unordered_map<TaskID_t, string>* task_to_pod_group =
+			firmament_scheduler_serivice_utils_->GetTaskToPodGroupMap();
+		string* pod_group_name = FindOrNull(*task_to_pod_group, tid_ptr->task_uid());
+		task_to_pod_group->erase(tid_ptr->task_uid());
+		//deduct the resources of task from the allocated if task state is  running.
+		//1.get the pod group name 2. then get allocated value and deduct 
+
+		if(td_ptr->state() == TaskDescriptor::RUNNING) {
+			//insert the element with pod group name and resource allocated by it.
+			unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+			firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+			Resource_Allocated* allocted_resource =
+				FindOrNull(*pgToResourceAllocted, *pod_group_name);
+
+			if(allocted_resource != NULL) {
+
+				allocted_resource->cpu_resource -= 
+					td_ptr->resource_request().cpu_cores();
+				allocted_resource->memory_resource -= 
+					td_ptr->resource_request().ram_cap();
+				allocted_resource->ephemeral_resource -= 
+					td_ptr->resource_request().ephemeral_storage();
+
+			}	else { //do nothing
+			
+			}
+		}
+		//*** TBD flag for gang scheduling ends here
+		
     if (FLAGS_resource_stats_update_based_on_resource_reservation) {
       if (!td_ptr->scheduled_to_resource().empty()) {
         UpdateMachineSamplesToKnowledgeBaseStatically(td_ptr, true);
@@ -466,10 +542,63 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         UpdateMachineSamplesToKnowledgeBaseStatically(td_ptr, true);
       }
     }
+	
     scheduler_->HandleTaskRemoval(td_ptr);
     JobID_t job_id = JobIDFromString(td_ptr->job_id());
     JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);
     CHECK_NOTNULL(jd_ptr);
+
+			//TBD **** flag starts here
+		//deduct the requested resources
+		if(td_ptr->state() == TaskDescriptor::CREATED ||
+				td_ptr->state() == TaskDescriptor::RUNNABLE ||
+				td_ptr->state() == TaskDescriptor::BLOCKING ||
+				td_ptr->state() == TaskDescriptor::ASSIGNED) {
+
+			//update the Queue proportion here
+			string *queue_name = 
+			FindOrNull(pod_group_to_queue_map_, jd_ptr->pod_group_name());
+			if(queue_name != NULL) {
+				Queue_Proportion *qProportion = FindOrNull(queue_map_Proportion_, *queue_name);
+				//Queue_Proportion *qProportion = FindOrNull(queue_map_Proportion_, *queue_name);
+
+				qProportion->DeductRequestedResource(td_ptr->resource_request().cpu_cores(),
+				td_ptr->resource_request().ram_cap(), td_ptr->resource_request().ephemeral_storage());
+			}
+		
+		}  
+		else if(td_ptr->state() == TaskDescriptor::RUNNING) {
+			//remove the task from the task to podgroup
+			unordered_map<TaskID_t, string>* task_to_pod_group =
+				firmament_scheduler_serivice_utils_->GetTaskToPodGroupMap();
+			string* pod_group_name = FindOrNull(*task_to_pod_group, tid_ptr->task_uid());
+			task_to_pod_group->erase(tid_ptr->task_uid());
+			//deduct the resources of task from the allocated
+			//1.get the pod group name 2. then get allocated value and deduct value
+
+			//insert the element with pod group name and resource allocated by it.
+			unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+			firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+			Resource_Allocated* allocted_resource =
+				FindOrNull(*pgToResourceAllocted, *pod_group_name);
+
+			if(allocted_resource != NULL) {
+
+				allocted_resource->cpu_resource -= 
+					td_ptr->resource_request().cpu_cores();
+				allocted_resource->memory_resource -= 
+					td_ptr->resource_request().ram_cap();
+				allocted_resource->ephemeral_resource -= 
+					td_ptr->resource_request().ephemeral_storage();
+
+			} else { //do nothing
+
+			}			
+			
+		}//deduct from allocate d
+		//TBD **** flag ends here
+
+		
     // Don't remove the root task so that tasks can still be appended to
     // the job. We only remove the root task when the job completes.
     if (td_ptr != jd_ptr->mutable_root_task()) {
@@ -573,6 +702,30 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     uint64_t* num_tasks_to_remove =
         FindOrNull(job_num_tasks_to_remove_, job_id);
     (*num_tasks_to_remove)++;
+
+		//***TBD use the flag here
+		unordered_map<TaskID_t, string>* task_to_pod_group =
+		firmament_scheduler_serivice_utils_->GetTaskToPodGroupMap();
+
+		//need to make sure that pod_group_name is valid
+		InsertIfNotPresent(task_to_pod_group, task_id, jd_ptr->pod_group_name());
+
+		
+		//update the Queue proportion here
+		string *queue_name = 
+			FindOrNull(pod_group_to_queue_map_, jd_ptr->pod_group_name());
+		if(queue_name != NULL) {
+				Queue_Proportion *qProportion = FindOrNull(queue_map_Proportion_, *queue_name);
+
+				qProportion->AddRequestedResource(
+					task_desc_ptr->task_descriptor().resource_request().cpu_cores(),
+					task_desc_ptr->task_descriptor().resource_request().ram_cap(),
+					task_desc_ptr->task_descriptor().resource_request().ephemeral_storage());
+			} else {
+			//we need to put it into default Queue
+			}
+		//*** TBD flag ends here
+		
     reply->set_type(TaskReplyType::TASK_SUBMITTED_OK);
     return Status::OK;
   }
@@ -663,21 +816,32 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       resource_stats.set_resource_id(rtnd_ptr->resource_desc().uuid());
       resource_stats.set_timestamp(0);
 
+			//add all the node capcity and allocatable to the aggregate
+			ResourceStatsAggregate resAgg;
+			
       CpuStats* cpu_stats = resource_stats.add_cpus_stats();
       // As some of the resources is utilized by system pods, so initializing
       // utilization to 10%.
-      cpu_stats->set_cpu_capacity(
-          rtnd_ptr->resource_desc().resource_capacity().cpu_cores());
-      cpu_stats->set_cpu_allocatable(
-          rtnd_ptr->resource_desc().available_resources().cpu_cores());
+			int64_t cpu_cores = rtnd_ptr->resource_desc().resource_capacity().cpu_cores();
+      cpu_stats->set_cpu_capacity(cpu_cores);
+			resAgg.resource_capcity.cpu_resource = cpu_cores;
+
+			cpu_cores =  rtnd_ptr->resource_desc().available_resources().cpu_cores();
+      cpu_stats->set_cpu_allocatable(cpu_cores);
+			resAgg.resource_allocatable.cpu_resource = cpu_cores;
+			
       double cpu_utilization =
           (cpu_stats->cpu_capacity() - cpu_stats->cpu_allocatable()) /
           (double)cpu_stats->cpu_capacity();
       cpu_stats->set_cpu_utilization(cpu_utilization);
-      resource_stats.set_mem_capacity(
-          rtnd_ptr->resource_desc().resource_capacity().ram_cap());
-      resource_stats.set_mem_allocatable(
-          rtnd_ptr->resource_desc().available_resources().ram_cap());
+			int64_t ram = rtnd_ptr->resource_desc().resource_capacity().ram_cap();
+      resource_stats.set_mem_capacity(ram);
+			resAgg.resource_capcity.memory_resource = ram;
+			
+			ram = rtnd_ptr->resource_desc().available_resources().ram_cap();
+      resource_stats.set_mem_allocatable(ram);
+			resAgg.resource_allocatable.memory_resource = ram;
+			
       double mem_utilization =
           (resource_stats.mem_capacity() - resource_stats.mem_allocatable()) /
           (double)resource_stats.mem_capacity();
@@ -686,16 +850,27 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       resource_stats.set_net_rx_bw(0);
       resource_stats.set_net_tx_bw(0);
       // ephemeral storage
-      resource_stats.set_ephemeral_storage_capacity(
-          rtnd_ptr->resource_desc().resource_capacity().ephemeral_storage());
-      resource_stats.set_ephemeral_storage_allocatable(
-          rtnd_ptr->resource_desc().available_resources().ephemeral_storage());
+      int64_t ephemeral_storage = 
+          rtnd_ptr->resource_desc().resource_capacity().ephemeral_storage();
+      resource_stats.set_ephemeral_storage_capacity(ephemeral_storage);
+			resAgg.resource_capcity.ephemeral_resource = ephemeral_storage;
+
+			ephemeral_storage = rtnd_ptr->resource_desc().available_resources().ephemeral_storage();
+      resource_stats.set_ephemeral_storage_allocatable(ephemeral_storage);
+			resAgg.resource_allocatable.ephemeral_resource = ephemeral_storage;	
+			
       double ephemeral_storage_utilization =
           (resource_stats.ephemeral_storage_capacity() -
            resource_stats.ephemeral_storage_allocatable()) /
           (double)resource_stats.ephemeral_storage_capacity();
       resource_stats.set_ephemeral_storage_utilization(
                                              ephemeral_storage_utilization);
+
+			//add all capacity allocatable to the aggregate.
+			//so that no need to loop through all the nodes to get the total cpacity
+			//and allocatable
+			knowledge_base_->AddToResourceStatsAgg(resAgg);
+			
       knowledge_base_->AddMachineSample(resource_stats);
     }
     return Status::OK;
@@ -709,6 +884,23 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);
       return Status::OK;
     }
+
+		//deduct all the node capcity and allocatable from the aggregate
+		ResourceStatsAggregate resAgg;
+		ResourceStats resource_stats;// = knowledge_base_->GetStatsForMachine(res_id);
+		knowledge_base_->GetLatestStatsForMachine(res_id, &resource_stats);
+		//if it is multicore then we need to go through each of the elements
+		CpuStats cpu_stats = resource_stats.cpus_stats(0);
+		resAgg.resource_capcity.cpu_resource = cpu_stats.cpu_capacity();		
+		resAgg.resource_capcity.memory_resource = resource_stats.mem_capacity();
+		resAgg.resource_capcity.ephemeral_resource = resource_stats.ephemeral_storage_capacity();
+
+		resAgg.resource_allocatable.cpu_resource =  cpu_stats.cpu_allocatable();
+		resAgg.resource_allocatable.memory_resource = resource_stats.mem_allocatable();
+		resAgg.resource_allocatable.ephemeral_resource= resource_stats.ephemeral_storage_allocatable();
+		//deduct the capacity and allocated resources from ResourceStatusAgg
+		knowledge_base_->DeductFromResourceStatsAgg(resAgg);
+		
     scheduler_->DeregisterResource(rs_ptr->mutable_topology_node());
     reply->set_type(NodeReplyType::NODE_FAILED_OK);
     return Status::OK;
@@ -722,6 +914,25 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       reply->set_type(NodeReplyType::NODE_NOT_FOUND);
       return Status::OK;
     }
+
+		
+		//deduct all the node capcity and allocatable from the aggregate
+		ResourceStatsAggregate resAgg;
+		
+		ResourceStats resource_stats;// = knowledge_base_->GetStatsForMachine(res_id);
+		knowledge_base_->GetLatestStatsForMachine(res_id, &resource_stats);
+		
+		CpuStats cpu_stats = resource_stats.cpus_stats(0);
+		resAgg.resource_capcity.cpu_resource = cpu_stats.cpu_capacity();		
+		resAgg.resource_capcity.memory_resource = resource_stats.mem_capacity();
+		resAgg.resource_capcity.ephemeral_resource = resource_stats.ephemeral_storage_capacity();
+
+		resAgg.resource_allocatable.cpu_resource =  cpu_stats.cpu_allocatable();
+		resAgg.resource_allocatable.memory_resource = resource_stats.mem_allocatable();
+		resAgg.resource_allocatable.ephemeral_resource= resource_stats.ephemeral_storage_allocatable();
+		//deduct the capacity and allocated resources from ResourceStatusAgg
+		knowledge_base_->DeductFromResourceStatsAgg(resAgg);
+
     scheduler_->DeregisterResource(rs_ptr->mutable_topology_node());
     reply->set_type(NodeReplyType::NODE_REMOVED_OK);
     return Status::OK;
@@ -805,6 +1016,166 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     return Status::OK;
   }
 
+/**
+ *Add Queue as and when it is created and update
+ *deserved proportion
+ **/
+Status QueueAdded(ServerContext* context,
+				const QueueDescriptor* queue_desc_ptr,
+				QueueAddedResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(
+	 scheduler_->scheduling_lock_);
+
+	if(queue_desc_ptr != NULL){
+
+		bool exist = InsertIfNotPresent(queue_map_.get(), queue_desc_ptr->name(),
+						   *queue_desc_ptr);
+		if(!exist){
+			reply->set_type(QUEUE_ALREADY_ADDED);
+		}else{
+		//insert the queue name into the map with dummy weight '0'
+		InsertIfNotPresent(&queue_map_ratio_,queue_desc_ptr->name(),0);							
+		//calculate ratio based on the number of Queue present
+		CalculatePropotionRatio();
+
+		//initialize all the propotion value to zero.
+		Queue_Proportion qProportion;
+		qProportion.SetAllocatedResource(0,0,0);
+		qProportion.SetDeservedResource(0,0,0);
+		qProportion.SetRequestedResource(0,0,0);
+		InsertIfNotPresent(&queue_map_Proportion_,queue_desc_ptr->name(),qProportion);
+		//deseved propotion need to be updated as it is available 
+		//as and when Queue is added
+		UpdateDeservedProportion();
+		reply->set_type(QUEUE_ADDED_OK);
+		}
+	} else {
+ 	reply->set_type(QUEUE_INVALID_OK);
+ 	}
+ return Status::OK;
+}
+
+/**
+ *Remove Queue
+ **/
+Status QueueRemoved(ServerContext* context,
+				const QueueDescriptor* queue_desc_ptr,
+				QueueRemoveResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(
+	 scheduler_->scheduling_lock_);
+
+}
+
+/**
+ *Update Queue
+ **/
+Status QueueUpdated(ServerContext* context,
+				const QueueDescriptor* queue_desc_ptr,
+				QueueUpdateResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(
+	 scheduler_->scheduling_lock_);
+
+}
+
+/**
+ *Calculate the new ratio for all queue/s in the system
+ **/
+void CalculatePropotionRatio() {
+ 	int64_t aggWeight = 0;
+	
+	for (thread_safe::map<string, QueueDescriptor>::iterator it 
+			= queue_map_.get()->begin(); it!= queue_map_.get()->end(); ++it) {
+		aggWeight += it->second.weight();
+		}
+		
+	for (thread_safe::map<string, QueueDescriptor>::iterator it
+			= queue_map_.get()->begin(); it != queue_map_.get()->end(); ++it) {
+		auto it1  = queue_map_ratio_.begin();		
+		//can put check for .end() //but its not necessary
+		it1->second = it->second.weight()/aggWeight;
+		++it1;
+		}
+}
+
+/**
+ *
+ */
+void UpdateDeservedProportion() {
+
+	for(unordered_map<string, double>::iterator it = queue_map_ratio_.begin(); it != queue_map_ratio_.end();++it) {
+		auto itProportion = queue_map_Proportion_.begin();
+		ResourceStatsAggregate resAgg = knowledge_base_->GetResourceStatsAgg();
+		itProportion->second.SetDeservedResource(
+			resAgg.resource_allocatable.cpu_resource * it->second,
+			resAgg.resource_allocatable.memory_resource * it->second,
+			resAgg.resource_allocatable.ephemeral_resource * it->second);
+		}
+}
+
+ /**
+  *Add Podgroup
+	*/	
+Status PodGroupAdded(ServerContext* context,
+				const PodGroupDescriptor* pod_group_desc_ptr,
+				PodGroupAddedResponse* reply) override {
+
+	boost::lock_guard<boost::recursive_mutex> lock(
+		scheduler_->scheduling_lock_);
+	if(pod_group_desc_ptr != NULL){
+		
+		bool exist = InsertIfNotPresent(&pod_group_map_,
+			pod_group_desc_ptr->name(),
+			*pod_group_desc_ptr);
+		
+		if(!exist) {
+			reply->set_type(PODGROUP_ALREADY_ADDED);
+			
+		} else {
+			InsertIfNotPresent(&pod_group_to_queue_map_,
+				pod_group_desc_ptr->name(),pod_group_desc_ptr->queuename());
+
+			//insert the element with pod group name and resource allocated by it.
+			unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+			firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+			Resource_Allocated resAllocated ;
+			//when pg is added allocated resources =  0
+			resAllocated.cpu_resource = 0;
+			resAllocated.memory_resource = 0;
+			resAllocated.ephemeral_resource = 0;
+			InsertIfNotPresent(pgToResourceAllocted, pod_group_desc_ptr->name(), resAllocated);				
+			reply->set_type(PODGROUP_ADDED_OK);
+		}
+		
+	}	else {
+		reply->set_type(PODGROUP_INVALID_OK);
+	}
+				
+}
+ 
+ /**
+  *Podgroup Removed
+	*/	
+Status PodGroupRemoved(ServerContext* context,
+				const PodGroupDescriptor* queue_desc_ptr,
+				PodGroupRemoveResponse* reply) override {
+				
+	boost::lock_guard<boost::recursive_mutex> lock(
+				 scheduler_->scheduling_lock_);
+				
+}
+
+ /**
+  *PodGroup Updated
+	*/	
+Status PodGroupUpdated(ServerContext* context,
+				const PodGroupDescriptor* queue_desc_ptr,
+				PodGroupUpdateResponse* reply) override {
+				
+	boost::lock_guard<boost::recursive_mutex> lock(
+				 scheduler_->scheduling_lock_);
+				
+}
+
  private:
   SchedulerInterface* scheduler_;
   SimulatedMessagingAdapter<BaseMessage>* sim_messaging_adapter_;
@@ -831,6 +1202,16 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
   unordered_map<string, unordered_map<string, vector<TaskID_t>>> labels_map_;
   vector<TaskID_t> affinity_antiaffinity_tasks_;
   unordered_map<string, ResourceID_t> task_resource_map_;
+	//multi tenant support throug Queue
+  boost::shared_ptr<QueueMap_t>queue_map_; 
+  unordered_map<string, double> queue_map_ratio_;
+  unordered_map<string, Queue_Proportion> queue_map_Proportion_;
+	//map for pod group
+	unordered_map<string, PodGroupDescriptor> pod_group_map_;
+	unordered_map<string, string> pod_group_to_queue_map_;
+	
+		
+	Firmament_Scheduler_Service_Utils* firmament_scheduler_serivice_utils_; 
 
   ResourceStatus* CreateTopLevelResource() {
     ResourceID_t res_id = GenerateResourceID();

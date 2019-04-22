@@ -142,7 +142,11 @@ class FlowScheduler : public EventDrivenScheduler {
     vector<SchedulingDelta>* deltas_output, vector<JobDescriptor*>* job_vector);
   void UpdateCostModelResourceStats();
   void AddKnowledgeBaseResourceStats(TaskDescriptor* td_ptr,
-                                                 ResourceStatus* rs);
+                                           ResourceStatus* rs); 
+	void CalculatePodGroupArcCostDRF(const TaskDescriptor& td);
+	template <class T>
+float ResourceRatio(T aggregate, T allocated);
+
 
   // Pointer to the coordinator's topology manager
   shared_ptr<TopologyManager> topology_manager_;
