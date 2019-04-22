@@ -268,6 +268,44 @@ class CostModelInterface {
   virtual void GetUnscheduledTasks(vector<uint64_t>* unscheduled_tasks_ptr) {
   }
 
+ /**
+  * Get Job equiv class for the task of the job.
+  */
+  virtual vector<EquivClass_t>* GetJobEquivClasses(TaskID_t task_id) {
+    return NULL;
+  }
+
+  /**
+   * Arc descriptor values for job equiv class to pod group equiv class.
+   */
+  virtual ArcDescriptor JobEquivClassToPGEquivClass(EquivClass_t ec1,
+                                                    EquivClass_t ec2) {
+    return ArcDescriptor(0LL, 0ULL, 0ULL);
+  }
+
+  /**
+   * Arc descriptor values for pod group equiv class to task equiv class.
+   */
+  virtual ArcDescriptor PGEquivClassToEquivClass(EquivClass_t ec1,
+                                                    EquivClass_t ec2) {
+    return ArcDescriptor(0LL, 0ULL, 0ULL);
+  }
+
+  /**
+   * Get pod group equiv class for a job of the pod group.
+   */
+  virtual vector<EquivClass_t>* GetPodGroupEquivClasses(EquivClass_t ec_id) {
+    return NULL;
+  }
+
+  /**
+   * Wrapper function to get task equiv class for a pod group equiv class.
+   */
+  virtual vector<EquivClass_t>* GetTaskEquivClassesForPGEquivClass(
+                                                         EquivClass_t ec_id)  {
+    return NULL;
+  }
+
  protected:
   shared_ptr<FlowGraphManager> flow_graph_manager_;
 };

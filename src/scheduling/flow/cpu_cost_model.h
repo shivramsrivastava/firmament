@@ -108,11 +108,16 @@ class CpuCostModel : public CostModelInterface {
   // Costs to equivalence class aggregators
   ArcDescriptor TaskToEquivClassAggregator(TaskID_t task_id, EquivClass_t tec);
   ArcDescriptor EquivClassToResourceNode(EquivClass_t tec, ResourceID_t res_id);
+  ArcDescriptor JobEquivClassToPGEquivClass(EquivClass_t ec1, EquivClass_t ec2);
+  ArcDescriptor PGEquivClassToEquivClass(EquivClass_t ec1, EquivClass_t ec2);
   ArcDescriptor EquivClassToEquivClass(EquivClass_t tec1, EquivClass_t tec2);
   // Calculate costs pertaining to pod priorities such node affinity, pod
   // affinity etc.
   void CalculatePrioritiesCost(const EquivClass_t ec,
                                const ResourceDescriptor& rd);
+  vector<EquivClass_t>* GetJobEquivClasses(TaskID_t task_id);
+  vector<EquivClass_t>* GetPodGroupEquivClasses(EquivClass_t ec_id);
+  vector<EquivClass_t>* GetTaskEquivClassesForPGEquivClass(EquivClass_t ec_id);
   // Get the type of equiv class.
   vector<EquivClass_t>* GetTaskEquivClasses(TaskID_t task_id);
   vector<ResourceID_t>* GetOutgoingEquivClassPrefArcs(EquivClass_t tec);
@@ -271,7 +276,7 @@ class CpuCostModel : public CostModelInterface {
   unordered_map<ResourceID_t, vector<string>, boost::hash<ResourceID_t>>
                                                       resource_to_namespaces_;
   // Pod affinity/anti-affinity symmetry
-  unordered_map<ResourceID_t, vector<TaskID_t>, boost::hash<ResourceID_t>> 
+  unordered_map<ResourceID_t, vector<TaskID_t>, boost::hash<ResourceID_t>>
                                                 resource_to_task_symmetry_map_;
   unordered_set<EquivClass_t> ecs_with_pod_antiaffinity_symmetry_;
   unordered_map<EquivClass_t, ResourceID_t> ec_to_best_fit_resource_;
@@ -283,6 +288,12 @@ class CpuCostModel : public CostModelInterface {
   unordered_map<EquivClass_t, vector<uint64_t>> task_ec_to_connected_tasks_;
   unordered_map<EquivClass_t, unordered_set<uint64_t>>
     task_ec_to_connected_tasks_set_;
+  unordered_map<EquivClass_t, string> jobec_to_jobid_;
+  unordered_map<string, TaskID_t> jobid_to_taskid_;
+  unordered_map<EquivClass_t, string> podgroup_ec_to_jobid_;
+  unordered_map<EquivClass_t, unordered_set<TaskID_t>> job_ec_to_tasks_;
+  unordered_map<EquivClass_t, uint64_t> job_ec_to_cost_;
+  unordered_map<EquivClass_t, EquivClass_t> pg_ec_to_job_ec_;
 };
 
 }  // namespace firmament

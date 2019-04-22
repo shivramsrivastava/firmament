@@ -263,6 +263,20 @@ class FlowGraphManager {
                             unordered_set<uint64_t>* marked_nodes);
 
   /**
+   * Updates an outgoing arc from job EC to pod group EC.
+   */
+   void UpdateJobEquivToPodGroupEquivArcs(FlowGraphNode* ec_node,
+                                queue<TDOrNodeWrapper*>* node_queue,
+                                unordered_set<uint64_t>* marked_nodes);
+
+  /**
+   * Updates an outgoing arc from pod group EC to task EC.
+   */
+   void UpdatePGEquivToEquivArcs(FlowGraphNode* ec_node,
+                                 queue<TDOrNodeWrapper*>* node_queue,
+                                 unordered_set<uint64_t>* marked_nodes);
+
+  /**
    * Updates an EC's outgoing arcs to other ECs. If the EC has new outgoing arcs
    * to new EC nodes then the method appends them to the node_queue. Similarly,
    * EC nodes that have not yet been marked are appended to the queue.
@@ -413,6 +427,8 @@ class FlowGraphManager {
   // used as a marker in the resource topology traversal. It helps us to avoid
   // having to reset the visited state before each traversal.
   uint32_t cur_traversal_counter_;
+  unordered_set<EquivClass_t> job_ecs_;
+  unordered_set<EquivClass_t> pg_ecs_;
 };
 
 }  // namespace firmament

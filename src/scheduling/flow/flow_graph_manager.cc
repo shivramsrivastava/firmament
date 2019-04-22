@@ -51,6 +51,7 @@ DEFINE_bool(update_preferences_running_task, false,
 
 DECLARE_string(flow_scheduling_solver);
 DECLARE_uint64(max_tasks_per_pu);
+DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
 
@@ -328,7 +329,7 @@ void FlowGraphManager::SchedulingDeltasForPreemptedTasks(
         continue;
       }
       if (task_node->td_ptr_->state() != TaskDescriptor::RUNNING) {
-        // For pod affinity/antiaffinity tasks from previous 
+        // For pod affinity/antiaffinity tasks from previous
         // scheduling round not satisfying gang scheduling.
         continue;
       }
@@ -819,8 +820,108 @@ void FlowGraphManager::UpdateEquivClassNode(
   CHECK_NOTNULL(ec_node);
   CHECK_NOTNULL(node_queue);
   CHECK_NOTNULL(marked_nodes);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    UpdateJobEquivToPodGroupEquivArcs(ec_node, node_queue, marked_nodes);
+    UpdatePGEquivToEquivArcs(ec_node, node_queue, marked_nodes);
+  }
   UpdateEquivToEquivArcs(ec_node, node_queue, marked_nodes);
   UpdateEquivToResArcs(ec_node, node_queue, marked_nodes);
+}
+
+void FlowGraphManager::UpdateJobEquivToPodGroupEquivArcs(
+    FlowGraphNode* ec_node,
+    queue<TDOrNodeWrapper*>* node_queue,
+    unordered_set<uint64_t>* marked_nodes) {
+  CHECK_NOTNULL(ec_node);
+  CHECK_NOTNULL(node_queue);
+  CHECK_NOTNULL(marked_nodes);
+  vector<EquivClass_t>* pref_ec =
+                        cost_model_->GetPodGroupEquivClasses(ec_node->ec_id_);
+  if (pref_ec) {
+    for (auto& pref_ec_id : *pref_ec) {
+      FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
+      if (!pref_ec_node) {
+        pref_ec_node = AddEquivClassNode(pref_ec_id);
+      }
+      ArcDescriptor arc_descriptor =
+        cost_model_->JobEquivClassToPGEquivClass(ec_node->ec_id_, pref_ec_id);
+      FlowGraphArc* pref_ec_arc =
+        graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
+                                                          pref_ec_node);
+      if (!pref_ec_arc) {
+        graph_change_manager_->AddArc(
+            ec_node, pref_ec_node, arc_descriptor.min_flow_,
+            arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
+            ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdateJobEquivToPodGroupEquivArcs");
+      } else {
+        graph_change_manager_->ChangeArc(
+            pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
+            arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
+            "UpdateJobEquivToPodGroupEquivArcs");
+      }
+      if (marked_nodes->find(pref_ec_node->id_) == marked_nodes->end()) {
+        // Add the EC node to the queue if it hasn't been marked yet.
+        marked_nodes->insert(pref_ec_node->id_);
+        node_queue->push(
+            new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+      }
+      pg_ecs_.insert(pref_ec_id);
+    }
+    RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+    delete pref_ec;
+  } else {
+    vector<EquivClass_t> no_pref_ec;
+    RemoveInvalidECPrefArcs(*ec_node, no_pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+  }
+}
+
+void FlowGraphManager::UpdatePGEquivToEquivArcs(
+    FlowGraphNode* ec_node,
+    queue<TDOrNodeWrapper*>* node_queue,
+    unordered_set<uint64_t>* marked_nodes) {
+  CHECK_NOTNULL(ec_node);
+  CHECK_NOTNULL(node_queue);
+  CHECK_NOTNULL(marked_nodes);
+  vector<EquivClass_t>* pref_ec =
+              cost_model_->GetTaskEquivClassesForPGEquivClass(ec_node->ec_id_);
+  if (pref_ec) {
+    for (auto& pref_ec_id : *pref_ec) {
+      FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
+      if (!pref_ec_node) {
+        pref_ec_node = AddEquivClassNode(pref_ec_id);
+      }
+      ArcDescriptor arc_descriptor =
+        cost_model_->PGEquivClassToEquivClass(ec_node->ec_id_, pref_ec_id);
+      FlowGraphArc* pref_ec_arc =
+        graph_change_manager_->mutable_flow_graph()->GetArc(ec_node,
+                                                            pref_ec_node);
+      if (!pref_ec_arc) {
+        graph_change_manager_->AddArc(
+            ec_node, pref_ec_node, arc_descriptor.min_flow_,
+            arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
+            ADD_ARC_BETWEEN_EQUIV_CLASS, "UpdatePGEquivToEquivArcs");
+
+      } else {
+        graph_change_manager_->ChangeArc(
+            pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
+            arc_descriptor.cost_, CHG_ARC_BETWEEN_EQUIV_CLASS,
+            "UpdatePGEquivToEquivArcs");
+      }
+      if (marked_nodes->find(pref_ec_node->id_) == marked_nodes->end()) {
+        // Add the EC node to the queue if it hasn't been marked yet.
+        marked_nodes->insert(pref_ec_node->id_);
+        node_queue->push(
+            new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+      }
+    }
+    if (job_ecs_.find(ec_node->ec_id_) == job_ecs_.end()) {
+      RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+    }
+    delete pref_ec;
+  } else {
+    vector<EquivClass_t> no_pref_ec;
+    RemoveInvalidECPrefArcs(*ec_node, no_pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+  }
 }
 
 void FlowGraphManager::UpdateEquivToEquivArcs(
@@ -861,7 +962,10 @@ void FlowGraphManager::UpdateEquivToEquivArcs(
             new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
       }
     }
-    RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+    if((pg_ecs_.find(ec_node->ec_id_) == pg_ecs_.end()) &&
+                   (job_ecs_.find(ec_node->ec_id_) == job_ecs_.end())) {
+      RemoveInvalidECPrefArcs(*ec_node, *pref_ec, DEL_ARC_BETWEEN_EQUIV_CLASS);
+    }
     delete pref_ec;
   } else {
     vector<EquivClass_t> no_pref_ec;
@@ -1177,8 +1281,12 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
   CHECK_NOTNULL(task_node);
   CHECK_NOTNULL(node_queue);
   CHECK_NOTNULL(marked_nodes);
-  vector<EquivClass_t>* pref_ec =
-    cost_model_->GetTaskEquivClasses(task_node->td_ptr_->uid());
+  vector<EquivClass_t>* pref_ec = NULL;
+  if (FLAGS_proportion_drf_based_scheduling) {
+    pref_ec = cost_model_->GetJobEquivClasses(task_node->td_ptr_->uid());
+  } else {
+    pref_ec = cost_model_->GetTaskEquivClasses(task_node->td_ptr_->uid());
+  }
   if (pref_ec) {
     for (auto& pref_ec_id : *pref_ec) {
       FlowGraphNode* pref_ec_node = NodeForEquivClass(pref_ec_id);
@@ -1196,7 +1304,6 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
             task_node, pref_ec_node, arc_descriptor.min_flow_,
             arc_descriptor.capacity_, arc_descriptor.cost_, OTHER,
             ADD_ARC_TASK_TO_EQUIV_CLASS, "UpdateTaskToEquivArcs");
-
       } else {
         graph_change_manager_->ChangeArc(
             pref_ec_arc, arc_descriptor.min_flow_, arc_descriptor.capacity_,
@@ -1208,6 +1315,9 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
         marked_nodes->insert(pref_ec_node->id_);
         node_queue->push(
             new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+      }
+      if (FLAGS_proportion_drf_based_scheduling) {
+        job_ecs_.insert(pref_ec_id);
       }
     }
     RemoveInvalidECPrefArcs(*task_node, *pref_ec, DEL_ARC_TASK_TO_EQUIV_CLASS);

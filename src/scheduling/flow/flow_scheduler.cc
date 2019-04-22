@@ -73,7 +73,10 @@ DECLARE_string(flow_scheduling_solver);
 DECLARE_bool(flowlessly_flip_algorithms);
 DEFINE_bool(resource_stats_update_based_on_resource_reservation, true,
             "Set this false when you have external machine stats server");
-DEFINE_bool(pod_affinity_antiaffinity_symmetry, false, "Enable pod affinity/anti-affinity symmetry");
+DEFINE_bool(pod_affinity_antiaffinity_symmetry, false,
+                              "Enable pod affinity/anti-affinity symmetry");
+DEFINE_bool(proportion_drf_based_scheduling, false,
+                              "Enable proportion and DRF based scheduling");
 
 namespace firmament {
 namespace scheduler {
@@ -156,7 +159,7 @@ FlowScheduler::FlowScheduler(
       VLOG(1) << "Using the net cost model";
       break;
     case CostModelType::COST_MODEL_CPU:
-      cost_model_ = 
+      cost_model_ =
           new CpuCostModel(resource_map, task_map, knowledge_base, labels_map);
       VLOG(1) << "Using the cpu cost model";
       break;
@@ -213,7 +216,7 @@ uint64_t FlowScheduler::ApplySchedulingDeltas(
           vector<SchedulingDelta>* delta_vec =
                             FindOrNull(affinity_job_to_deltas_, jd);
           if (delta_vec) {
-            if (affinity_delta_tasks.find(delta->task_id()) 
+            if (affinity_delta_tasks.find(delta->task_id())
                                      == affinity_delta_tasks.end()) {
               delta_vec->push_back(*delta);
               affinity_delta_tasks.insert(delta->task_id());
@@ -1089,7 +1092,7 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
         unscheduled_affinity_tasks->push_back(root_td.uid());
       }
       continue;
-    }    
+    }
     if (jd_ptr->scheduled_tasks_count() < jd_ptr->min_number_of_tasks()) {
       for (auto delta : it->second) {
         TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, delta.task_id());

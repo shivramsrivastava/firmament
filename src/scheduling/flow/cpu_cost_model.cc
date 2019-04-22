@@ -35,6 +35,7 @@ DEFINE_uint64(max_multi_arcs_for_cpu, 50, "Maximum number of multi-arcs.");
 DECLARE_uint64(max_tasks_per_pu);
 DECLARE_bool(gather_unscheduled_tasks);
 DECLARE_bool(pod_affinity_antiaffinity_symmetry);
+DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
 
@@ -147,13 +148,65 @@ ArcDescriptor CpuCostModel::TaskPreemption(TaskID_t task_id) {
 
 ArcDescriptor CpuCostModel::TaskToEquivClassAggregator(TaskID_t task_id,
                                                        EquivClass_t ec) {
-  return ArcDescriptor(0LL, 1ULL, 0ULL);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    uint64_t arc_cost = 0;
+    TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
+    if (td_ptr) {
+      arc_cost = td_ptr->priority();
+    }
+    unordered_set<TaskID_t>* task_set = FindOrNull(job_ec_to_tasks_, ec);
+    if (task_set) {
+      task_set->insert(task_id);
+    } else {
+      unordered_set<TaskID_t> t_set;
+      t_set.insert(task_id);
+      InsertIfNotPresent(&job_ec_to_tasks_, ec, t_set);
+      InsertIfNotPresent(&job_ec_to_cost_, ec, arc_cost);
+    }
+    return ArcDescriptor(arc_cost, 1ULL, 0ULL);
+  } else {
+    return ArcDescriptor(0LL, 1ULL, 0ULL);
+  }
 }
 
 ArcDescriptor CpuCostModel::EquivClassToResourceNode(EquivClass_t ec,
                                                      ResourceID_t res_id) {
   // The arcs between ECs an machine can only carry unit flow.
   return ArcDescriptor(0LL, 1ULL, 0ULL);
+}
+
+ArcDescriptor CpuCostModel::JobEquivClassToPGEquivClass(EquivClass_t ec1,
+                                                   EquivClass_t ec2) {
+  //Currently cost of arc is calculate based on task priority value
+  //as we do not have any job priority value.
+  uint64_t capacity = 0;
+  uint64_t final_cost = 0;
+  unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_, ec1);
+  if (tasks_set) {
+    capacity = tasks_set->size();
+  }
+  uint64_t* cost = FindOrNull(job_ec_to_cost_, ec1);
+  if (cost) {
+    final_cost = *cost;
+  }
+  InsertIfNotPresent(&pg_ec_to_job_ec_, ec2, ec1);
+  return ArcDescriptor(final_cost, capacity, 0ULL);
+}
+
+ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
+                                                   EquivClass_t ec2) {
+  //TODO(Pratik): calculate cost based on Pod Group priority and capacity
+  //based on proportion. Currently capacity is equal to the number of
+  //incoming tasks from the job it is associated to.
+  uint64_t capacity = 0;
+  EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, ec1);
+  if (job_ec) {
+    unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_, *job_ec);
+    if (tasks_set) {
+      capacity = tasks_set->size();
+    }
+  }
+  return ArcDescriptor(0LL, capacity, 0ULL);
 }
 
 ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
@@ -325,7 +378,7 @@ ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
   } else {
     taints_score.final_score = 0;
   }
- 
+
   // Expressing avoid pods priority scores
   if (rd.avoids_size()) {
     unordered_map<ResourceID_t, PriorityScoresList_t,
@@ -449,6 +502,49 @@ bool CpuCostModel::CheckPodAffinityAntiAffinitySymmetryConflict(
     }
   }
   return false;
+}
+
+vector<EquivClass_t>* CpuCostModel::GetJobEquivClasses(TaskID_t task_id) {
+  vector<EquivClass_t>* ecs = new vector<EquivClass_t>();
+  TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
+  CHECK_NOTNULL(td_ptr);
+  size_t job_agg = 0;
+  boost::hash_combine(job_agg, td_ptr->job_id() + "JOB_AGGREGATOR");
+  EquivClass_t job_ec = static_cast<EquivClass_t>(job_agg);
+  ecs->push_back(job_ec);
+  InsertIfNotPresent(&jobec_to_jobid_, job_ec, td_ptr->job_id());
+  InsertIfNotPresent(&jobid_to_taskid_, td_ptr->job_id(), task_id);
+  return ecs;
+}
+
+vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
+                                                    EquivClass_t ec_id) {
+  vector<EquivClass_t>* ecs = new vector<EquivClass_t>();
+  size_t PG_agg = 0;
+  string* job_id = FindOrNull(jobec_to_jobid_, ec_id);
+  if (job_id) {
+    //TODO(Pratik): Get pod group name from job descriptor and use it here.
+    boost::hash_combine(PG_agg, "PodGroup1" + *job_id);
+    EquivClass_t PG_ec = static_cast<EquivClass_t>(PG_agg);
+    ecs->push_back(PG_ec);
+    InsertIfNotPresent(&podgroup_ec_to_jobid_, PG_ec, *job_id);
+  }
+  return ecs;
+}
+
+vector<EquivClass_t>* CpuCostModel::GetTaskEquivClassesForPGEquivClass(
+                                                EquivClass_t ec_id) {
+  vector<EquivClass_t>* ecs = NULL;
+  string* job_id_ptr = FindOrNull(podgroup_ec_to_jobid_, ec_id);
+  if (job_id_ptr) {
+    TaskID_t* tid_ptr = FindOrNull(jobid_to_taskid_, *job_id_ptr);
+    ecs = GetTaskEquivClasses(*tid_ptr);
+  }
+  if (!ecs) {
+    return new vector<EquivClass_t>();
+  } else {
+    return ecs;
+  }
 }
 
 vector<EquivClass_t>* CpuCostModel::GetTaskEquivClasses(TaskID_t task_id) {
@@ -1282,12 +1378,12 @@ void CpuCostModel::CalculateNodePreferAvoidPodsPriority(
   PriorityScore_t& prefer_avoid_pods_priority =
                    priority_scores_struct_ptr->prefer_avoid_pods_priority;
   if ((rd.avoids_size())
-      && (!td.owner_ref_kind().compare(string("ReplicationController")) 
+      && (!td.owner_ref_kind().compare(string("ReplicationController"))
       || !td.owner_ref_kind().compare(string("ReplicaSet")))) {
     for (auto avoid : rd.avoids()) {
-      if ((!td.owner_ref_kind().compare(avoid.kind())) 
+      if ((!td.owner_ref_kind().compare(avoid.kind()))
                                && (!td.owner_ref_uid().compare(avoid.uid()))) {
-        // Avoid pods annotations matched. 
+        // Avoid pods annotations matched.
         // Score should be high so that cost will be high.
         prefer_avoid_pods_priority.score = omega_;
         return;
