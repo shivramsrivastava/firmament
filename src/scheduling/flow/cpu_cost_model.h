@@ -296,6 +296,8 @@ class CpuCostModel : public CostModelInterface {
   unordered_map<EquivClass_t, uint64_t> job_ec_to_cost_;
   unordered_map<EquivClass_t, EquivClass_t> pg_ec_to_job_ec_;
   unordered_map<string, EquivClass_t> job_id_to_job_ec_;
+  unordered_map<string, list<EquivClass_t>> pg_name_to_pg_ec_inorder_;
+  unordered_map<EquivClass_t, string> pg_ec_to_pg_name_;
 };
 
 }  // namespace firmament

@@ -529,6 +529,32 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
     EquivClass_t PG_ec = static_cast<EquivClass_t>(PG_agg);
     ecs->push_back(PG_ec);
     InsertIfNotPresent(&podgroup_ec_to_jobid_, PG_ec, *job_id);
+    //TODO(Pratik): Get pod group name from job descriptor and use it here.
+    list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
+                                                "PodGroup1");
+    if (pg_ec_list) {
+      uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
+      for (list<EquivClass_t>::iterator it = pg_ec_list->begin();
+           it != pg_ec_list->end(); it++) {
+        EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *it);
+        if (job_ec) {
+          uint64_t* cost = FindOrNull(job_ec_to_cost_, *job_ec);
+          if (*curr_cost < *cost) {
+            pg_ec_list->insert(it, PG_ec);
+            //TODO(Pratik): Get pod group name from job descriptor and use it here.
+            break;
+          }
+        }
+        pg_ec_list->push_back(PG_ec);
+      }
+    } else {
+      list<EquivClass_t> new_pg_ecs;
+      new_pg_ecs.push_back(PG_ec);
+      //TODO(Pratik): Get pod group name from job descriptor and use it here.
+      InsertIfNotPresent(&pg_name_to_pg_ec_inorder_, "PodGroup1", new_pg_ecs);
+    }
+    //TODO(Pratik): Get pod group name from job descriptor and use it here.
+    InsertIfNotPresent(&pg_ec_to_pg_name_, PG_ec, "PodGroup1");
   }
   return ecs;
 }
@@ -559,6 +585,21 @@ void CpuCostModel::RemoveECMapsData(EquivClass_t ec_id) {
   job_ec_to_cost_.erase(ec_id);
   podgroup_ec_to_jobid_.erase(ec_id);
   pg_ec_to_job_ec_.erase(ec_id);
+  string* pg_name = FindOrNull(pg_ec_to_pg_name_, ec_id);
+  if (pg_name) {
+    list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
+                                                *pg_name);
+    if (pg_ec_list) {
+      list<EquivClass_t>::iterator it_list =
+                          find(pg_ec_list->begin(), pg_ec_list->end(), ec_id);
+      if (it_list != pg_ec_list->end()) {
+        pg_ec_list->erase(it_list);
+        if (!pg_ec_list->size()) {
+          pg_name_to_pg_ec_inorder_.erase(*pg_name);
+        }
+      }
+    }
+  }
 }
 
 vector<EquivClass_t>* CpuCostModel::GetTaskEquivClasses(TaskID_t task_id) {
