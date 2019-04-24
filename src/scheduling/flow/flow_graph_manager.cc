@@ -505,6 +505,9 @@ void FlowGraphManager::RemoveEquivClassNode(FlowGraphNode* ec_node) {
   graph_change_manager_->DeleteNode(ec_node, DEL_EQUIV_CLASS_NODE,
                                     "RemoveEquivClassNode");
   cost_model_->RemoveECFromPodSymmetryMap(ec_node->ec_id_);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    cost_model_->RemoveECMapsData(ec_node->ec_id_);
+  }
 }
 
 void FlowGraphManager::RemoveInvalidECPrefArcs(

@@ -514,6 +514,7 @@ vector<EquivClass_t>* CpuCostModel::GetJobEquivClasses(TaskID_t task_id) {
   ecs->push_back(job_ec);
   InsertIfNotPresent(&jobec_to_jobid_, job_ec, td_ptr->job_id());
   InsertIfNotPresent(&jobid_to_taskid_, td_ptr->job_id(), task_id);
+  InsertIfNotPresent(&job_id_to_job_ec_, td_ptr->job_id(), job_ec);
   return ecs;
 }
 
@@ -545,6 +546,19 @@ vector<EquivClass_t>* CpuCostModel::GetTaskEquivClassesForPGEquivClass(
   } else {
     return ecs;
   }
+}
+
+void CpuCostModel::RemoveECMapsData(EquivClass_t ec_id) {
+  string* job_id = FindOrNull(jobec_to_jobid_, ec_id);
+  if (job_id) {
+    jobid_to_taskid_.erase(*job_id);
+    job_id_to_job_ec_.erase(*job_id);
+  }
+  job_ec_to_tasks_.erase(ec_id);
+  jobec_to_jobid_.erase(ec_id);
+  job_ec_to_cost_.erase(ec_id);
+  podgroup_ec_to_jobid_.erase(ec_id);
+  pg_ec_to_job_ec_.erase(ec_id);
 }
 
 vector<EquivClass_t>* CpuCostModel::GetTaskEquivClasses(TaskID_t task_id) {
@@ -1743,6 +1757,16 @@ void CpuCostModel::RemoveMachine(ResourceID_t res_id) {
 void CpuCostModel::RemoveTask(TaskID_t task_id) {
   // CHECK_EQ(task_rx_bw_requirement_.erase(task_id), 1);
   task_resource_requirement_.erase(task_id);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
+    EquivClass_t* job_ec = FindOrNull(job_id_to_job_ec_, td_ptr->job_id());
+    if (job_ec) {
+      unordered_set<TaskID_t>* task_set = FindOrNull(job_ec_to_tasks_, *job_ec);
+      if (task_set) {
+        task_set->erase(task_id);
+      }
+    }
+  }
 }
 
 EquivClass_t CpuCostModel::GetMachineEC(const string& machine_name,

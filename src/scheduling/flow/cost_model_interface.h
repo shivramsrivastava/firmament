@@ -306,6 +306,11 @@ class CostModelInterface {
     return NULL;
   }
 
+ /*
+  * Clears data related to EC from maps.
+  */
+ virtual void RemoveECMapsData(EquivClass_t ec_id) { }
+
  protected:
   shared_ptr<FlowGraphManager> flow_graph_manager_;
 };
