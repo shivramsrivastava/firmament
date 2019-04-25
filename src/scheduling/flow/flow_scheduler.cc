@@ -41,6 +41,8 @@
 #include "scheduling/scheduling_event_notifier_interface.h"
 #include "scheduling/flow/cost_models.h"
 #include "scheduling/flow/cost_model_interface.h"
+#include "scheduling/firmament_scheduler_service_utils.h"
+
 
 #define SIMULATION_START_TIME 600000000
 
@@ -512,6 +514,30 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
   }
   cost_model_->UpdateResourceToNamespacesMap(res_id,
                                              td_ptr->task_namespace(), true);
+  //*** TBD add flag here
+  Firmament_Scheduler_Service_Utils* fmt_sched_service_utils =
+      Firmament_Scheduler_Service_Utils::Instance();
+  unordered_map<TaskID_t, string>* task_to_pod_group_ptr =
+      fmt_sched_service_utils->GetTaskToPodGroupMap();
+  string* pod_group_name_ptr = FindOrNull(*task_to_pod_group_ptr, td_ptr->uid());
+  if (pod_group_name_ptr != NULL) {
+    unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
+        fmt_sched_service_utils->GetPGToResourceAllocated();
+    Resource_Allocated* resource_allocated_ptr =
+        FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+
+    if (resource_allocated_ptr != NULL) {
+      resource_allocated_ptr->cpu_resource +=
+          td_ptr->resource_request().cpu_cores();
+      resource_allocated_ptr->cpu_resource +=
+          td_ptr->resource_request().ram_cap();
+      resource_allocated_ptr->cpu_resource +=
+          td_ptr->resource_request().ephemeral_storage();
+    } else { /*** TBD need to handle */
+    }
+  } else { /*** TBD need to handle */
+  }
+  //*** TBD flag ends here
   EventDrivenScheduler::HandleTaskPlacement(td_ptr, rd_ptr);
 }
 
@@ -701,6 +727,9 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
   }
   for (auto& job_id_jd : jobs_to_schedule_) {
     const TaskDescriptor& td = job_id_jd.second->root_task();
+    //*** TBD add gang scheduling flag here
+    CalculatePodGroupArcCostDRF(td);
+    //*** TBD gang scheduling flag end here
     if (queue_based_schedule) {
       if (!(td.has_affinity() && (td.affinity().has_pod_affinity() ||
           td.affinity().has_pod_anti_affinity()))) {
@@ -1162,6 +1191,77 @@ void FlowScheduler::UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {
       task_set_ptr->insert(td_ptr->uid());
     }
   }
+}
+
+void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
+  Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
+      Firmament_Scheduler_Service_Utils::Instance();
+
+  unordered_map<TaskID_t, string>* task_to_pod_group_map_ptr =
+      fmt_scheduler_service_utils_ptr->GetTaskToPodGroupMap();
+  string* pod_group_name_ptr = FindOrNull(*task_to_pod_group_map_ptr, td.uid());
+  if (pod_group_name_ptr != NULL) {
+    unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
+        fmt_scheduler_service_utils_ptr->GetPGToResourceAllocated();
+    Resource_Allocated* allocated_resource_ptr =
+        FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+
+    if (allocated_resource_ptr != NULL) {
+      ResourceStatsAggregate resource_aggregate =
+          knowledge_base_->GetResourceStatsAgg();
+      /*TBD here we should put a list to iterate through the resources*/
+      float cpu_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.cpu_resource,
+                        allocated_resource_ptr->cpu_resource);
+
+      float memory_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.memory_resource,
+                        allocated_resource_ptr->memory_resource);
+
+      float ephemeral_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.cpu_resource,
+                        allocated_resource_ptr->cpu_resource);
+
+      float ratio = 0;
+
+      if (memory_resource_ratio >= cpu_resource_ratio) {
+        ratio = memory_resource_ratio;
+
+      } else if (cpu_resource_ratio >= ephemeral_resource_ratio) {
+        ratio = cpu_resource_ratio;
+
+      } else {
+        ratio = ephemeral_resource_ratio;
+      }
+      // converting ratio into cost by * with 1000
+      // so this value would be between 0 to 1000
+      ratio *= 1000;
+      ArcCost_t arc_cost_for_pg = (ArcCost_t)ratio;
+      unordered_map<string, ArcCost_t>* pod_grp_to_arc_cost =
+          fmt_scheduler_service_utils_ptr->GetPodGroupToArcCost();
+      InsertIfNotPresent(pod_grp_to_arc_cost, *pod_group_name_ptr,
+                         arc_cost_for_pg);
+
+    } else { /*handle this case*/
+    }
+
+  } else { /*need to handle this case*/
+  }
+}
+
+template <typename T>
+float FlowScheduler::ResourceRatio(T aggregate, T allocated) {
+  float temp_ratio = 0;
+  if (aggregate == 0) {
+    if (allocated == 0) {
+      temp_ratio = 0;
+    } else {
+      temp_ratio = 1;
+    }
+  } else {
+    temp_ratio = (allocated / aggregate);
+  }
+  return temp_ratio;
 }
 
 }  // namespace scheduler

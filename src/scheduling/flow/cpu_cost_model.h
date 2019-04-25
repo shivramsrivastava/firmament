@@ -223,6 +223,7 @@ class CpuCostModel : public CostModelInterface {
   void ClearUnscheduledTasksData();
   // Get unscheduled tasks in a scheduling round.
   void GetUnscheduledTasks(vector<uint64_t>* unscheduled_tasks_ptr);
+  ArcCost_t GetPodGroupDRFArchCost(string pod_group_name);
 
  private:
   // Fixed value for OMEGA, the normalization ceiling for each dimension's cost

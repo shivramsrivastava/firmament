@@ -43,6 +43,9 @@
 #include "base/resource_status.h"
 #include "base/resource_desc.pb.h"
 #include "base/job_desc.pb.h"
+#include "base/queue_desc.pb.h"
+#include "base/pod_group_desc.pb.h"
+
 
 using std::map;
 using std::pair;
@@ -115,6 +118,12 @@ namespace firmament {
 typedef uint32_t TaskOutputID_t;
 typedef uint64_t TaskID_t;
 typedef uint64_t EquivClass_t;
+typedef uint64_t QueueID_t;
+typedef uint64_t Weight_t;
+typedef uint64_t ArcCost_t;
+
+
+
 #ifdef __PLATFORM_HAS_BOOST__
 typedef boost::uuids::uuid ResourceID_t;
 typedef boost::uuids::uuid JobID_t;
@@ -124,11 +133,15 @@ typedef unordered_map<JobID_t, JobDescriptor,
         boost::hash<boost::uuids::uuid> > JobMap_t; */
 typedef thread_safe::map<ResourceID_t, ResourceStatus*> ResourceMap_t;
 typedef thread_safe::map<JobID_t, JobDescriptor> JobMap_t;
+typedef thread_safe::map<string, QueueDescriptor> QueueMap_t;
+
+
 #else
 typedef uint64_t ResourceID_t;
 typedef uint64_t JobID_t;
 typedef unordered_map<ResourceID_t, ResourceStatus*> ResourceMap_t;
 typedef unordered_map<JobID_t, JobDescriptor> JobMap_t;
+typedef unordered_map<string, QueueDescriptor> QueueMap_t;
 #endif
 // N.B.: the type of the second element here is a pointer, since the
 // TaskDescriptor objects will be part of the JobDescriptor protobuf that is

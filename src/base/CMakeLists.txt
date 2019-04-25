@@ -26,6 +26,8 @@ set(BASE_PROTOBUFS
   base/task_final_report.proto
   base/task_stats.proto
   base/whare_map_stats.proto
+  base/queue_desc.proto
+  base/pod_group_desc.proto
   )
 
 set(BASE_TESTS

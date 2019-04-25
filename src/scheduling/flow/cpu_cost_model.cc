@@ -29,6 +29,8 @@
 #include "scheduling/flow/flow_graph_manager.h"
 #include "scheduling/knowledge_base.h"
 #include "scheduling/label_utils.h"
+#include "scheduling/firmament_scheduler_service_utils.h"
+
 
 DEFINE_uint64(max_multi_arcs_for_cpu, 50, "Maximum number of multi-arcs.");
 
@@ -38,6 +40,8 @@ DECLARE_bool(pod_affinity_antiaffinity_symmetry);
 DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
+
+#define INVALID_ARCH_COST 10000
 
 CpuCostModel::CpuCostModel(
     shared_ptr<ResourceMap_t> resource_map, shared_ptr<TaskMap_t> task_map,
@@ -1910,6 +1914,35 @@ ResourceID_t CpuCostModel::MachineResIDForResource(ResourceID_t res_id) {
     rtnd = rs->mutable_topology_node();
   }
   return ResourceIDFromString(rtnd->resource_desc().uuid());
+}
+
+/**
+ *Cost of the arch based on DRF
+ */
+ArcCost_t CpuCostModel::GetPodGroupDRFArchCost(string pod_group_name) {
+  Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
+      Firmament_Scheduler_Service_Utils::Instance();
+  unordered_map<string, ArcCost_t>* pod_grp_to_arch_cost =
+      fmt_scheduler_service_utils_ptr->GetPodGroupToArcCost();
+
+  // assign invalid arch cost on error, valid arch cost can be 0 to 1000 only
+  ArcCost_t arch_cost;  // invalid arch cost
+  if (pod_grp_to_arch_cost != NULL) {
+    ArcCost_t* arch_cost_ptr =
+        FindOrNull(*pod_grp_to_arch_cost, pod_group_name);
+
+    if (arch_cost_ptr != NULL) {
+      arch_cost = *arch_cost_ptr;
+    } else {
+      arch_cost = INVALID_ARCH_COST;  // invalid arch cost ...TBD do we need to
+                                      // do somthing like assert?
+    }
+  } else {
+    arch_cost =
+        INVALID_ARCH_COST;  // invalid arch cost ...TBD do we need to assert?
+  }
+
+  return arch_cost;
 }
 
 }  // namespace firmament

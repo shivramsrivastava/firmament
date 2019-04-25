@@ -29,5 +29,6 @@ message JobDescriptor {
   uint64 min_number_of_tasks = 6;
   uint64 scheduled_tasks_count = 7;
   bool is_gang_scheduling_job = 8;
+  string pod_group_name = 9;
 }
 

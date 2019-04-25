@@ -70,6 +70,14 @@ KnowledgeBase::KnowledgeBase(DataLayerManagerInterface* data_layer_manager)
     coded_task_output_ =
         new ::google::protobuf::io::CodedOutputStream(raw_task_output_);
   }
+  //set all the aggregates to zero
+  resource_stats_.resource_capcity.cpu_resource = 0;
+  resource_stats_.resource_capcity.memory_resource = 0;
+  resource_stats_.resource_capcity.ephemeral_resource = 0;
+
+  resource_stats_.resource_allocatable.cpu_resource = 0;
+  resource_stats_.resource_allocatable.memory_resource = 0;
+  resource_stats_.resource_allocatable.ephemeral_resource = 0;
 }
 
 KnowledgeBase::~KnowledgeBase() {
@@ -367,6 +375,38 @@ uint64_t KnowledgeBase::GetResourceNonFirmamentTaskCount(ResourceID_t res_id) {
   } else {
     return 0;
   }
+}
+
+void KnowledgeBase::AddToResourceStatsAgg(ResourceStatsAggregate &resStatus) {
+  resource_stats_.resource_capcity.cpu_resource +=
+      resStatus.resource_capcity.cpu_resource;
+  resource_stats_.resource_capcity.memory_resource +=
+      resStatus.resource_capcity.memory_resource;
+  resource_stats_.resource_capcity.ephemeral_resource +=
+      resStatus.resource_capcity.ephemeral_resource;
+
+  resource_stats_.resource_allocatable.cpu_resource +=
+      resStatus.resource_allocatable.cpu_resource;
+  resource_stats_.resource_allocatable.memory_resource +=
+      resStatus.resource_allocatable.memory_resource;
+  resource_stats_.resource_allocatable.ephemeral_resource +=
+      resStatus.resource_allocatable.ephemeral_resource;
+}
+void KnowledgeBase::DeductFromResourceStatsAgg(
+    ResourceStatsAggregate &resStatus) {
+  resource_stats_.resource_capcity.cpu_resource -=
+      resStatus.resource_capcity.cpu_resource;
+  resource_stats_.resource_capcity.memory_resource -=
+      resStatus.resource_capcity.memory_resource;
+  resource_stats_.resource_capcity.ephemeral_resource -=
+      resStatus.resource_capcity.ephemeral_resource;
+
+  resource_stats_.resource_allocatable.cpu_resource -=
+      resStatus.resource_allocatable.cpu_resource;
+  resource_stats_.resource_allocatable.memory_resource -=
+      resStatus.resource_allocatable.memory_resource;
+  resource_stats_.resource_allocatable.ephemeral_resource -=
+      resStatus.resource_allocatable.ephemeral_resource;
 }
 
 }  // namespace firmament

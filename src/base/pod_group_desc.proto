@@ -1,0 +1,15 @@
+// The Firmament project
+// Copyright (c) The Firmament Authors.
+//
+// PodGroup descriptor protobuf.
+
+syntax = "proto3";
+
+package firmament;
+
+message PodGroupDescriptor {
+  uint64 uid = 1;
+  uint64 minMember = 2;
+  string name = 3;
+  string queueName = 4;
+}
