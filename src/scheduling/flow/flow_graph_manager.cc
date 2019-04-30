@@ -1318,6 +1318,11 @@ void FlowGraphManager::UpdateTaskToEquivArcs(
         marked_nodes->insert(pref_ec_node->id_);
         node_queue->push(
             new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+      } else {
+        if (FLAGS_proportion_drf_based_scheduling) {
+          node_queue->push(
+              new TDOrNodeWrapper(pref_ec_node, pref_ec_node->td_ptr_));
+        }
       }
       if (FLAGS_proportion_drf_based_scheduling) {
         job_ecs_.insert(pref_ec_id);

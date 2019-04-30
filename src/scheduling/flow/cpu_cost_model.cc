@@ -538,18 +538,23 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
                                                 "PodGroup1");
     if (pg_ec_list) {
       uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
-      for (list<EquivClass_t>::iterator it = pg_ec_list->begin();
-           it != pg_ec_list->end(); it++) {
-        EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *it);
-        if (job_ec) {
-          uint64_t* cost = FindOrNull(job_ec_to_cost_, *job_ec);
-          if (*curr_cost < *cost) {
-            pg_ec_list->insert(it, PG_ec);
-            //TODO(Pratik): Get pod group name from job descriptor and use it here.
-            break;
+      if (curr_cost) {
+        list<EquivClass_t>::iterator it = pg_ec_list->begin();
+        for ( ; it != pg_ec_list->end(); it++) {
+          EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *it);
+          if (job_ec) {
+            uint64_t* cost = FindOrNull(job_ec_to_cost_, *job_ec);
+            if (*curr_cost < *cost) {
+              //TODO(Pratik): Get pod group name from job descriptor and use it here.
+              break;
+            }
           }
         }
-        pg_ec_list->push_back(PG_ec);
+        if (it != pg_ec_list->end()) {
+          pg_ec_list->insert(it, PG_ec);
+        } else {
+          pg_ec_list->push_back(PG_ec);
+        }
       }
     } else {
       list<EquivClass_t> new_pg_ecs;
