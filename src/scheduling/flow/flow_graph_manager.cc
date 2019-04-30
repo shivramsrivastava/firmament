@@ -526,6 +526,8 @@ void FlowGraphManager::RemoveEquivClassNode(FlowGraphNode* ec_node) {
   cost_model_->RemoveECFromPodSymmetryMap(ec_node->ec_id_);
   if (FLAGS_proportion_drf_based_scheduling) {
     cost_model_->RemoveECMapsData(ec_node->ec_id_);
+    job_ecs_.erase(ec_node->ec_id_);
+    pg_ecs_.erase(ec_node->ec_id_);
   }
 }
 

@@ -81,7 +81,27 @@ void CpuCostModel::ClearUnscheduledTasksData() {
 
 // Events support for firmament.
 vector<uint64_t>* CpuCostModel::GetTasksConnectedToTaskEC(EquivClass_t ec) {
-  return &task_ec_to_connected_tasks_[ec];
+  if (FLAGS_proportion_drf_based_scheduling) {
+    vector<TaskID_t>* unscheduled_tasks = new vector<TaskID_t>();
+    unordered_set<EquivClass_t>* pg_ecs = FindOrNull(task_ec_to_pg_ecs_, ec);
+    if (pg_ecs) {
+      for (auto pg_ec : *pg_ecs) {
+        EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, pg_ec);
+        if (job_ec) {
+          unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_,
+                                                          *job_ec);
+          if (tasks_set) {
+            for (auto task : *tasks_set) {
+              unscheduled_tasks->push_back(task);
+            }
+          }
+        }
+      }
+    }
+    return unscheduled_tasks;
+  } else {
+    return &task_ec_to_connected_tasks_[ec];
+  }
 }
 
 pair<TaskID_t, ResourceID_t> CpuCostModel::GetTaskMappingForSingleTask(
@@ -113,6 +133,9 @@ void CpuCostModel::GetUnscheduledTasks(
     unscheduled_tasks_ptr->insert(std::end(*unscheduled_tasks_ptr),
                                   std::begin(*tasks_connected_to_ec),
                                   std::end(*tasks_connected_to_ec));
+    if (FLAGS_proportion_drf_based_scheduling) {
+      delete tasks_connected_to_ec;
+    }
   }
 }
 
@@ -142,6 +165,19 @@ ArcDescriptor CpuCostModel::LeafResourceNodeToSink(ResourceID_t resource_id) {
 
 ArcDescriptor CpuCostModel::TaskContinuation(TaskID_t task_id) {
   // TODO(shivramsrivastava): Implement before running with preemption enabled.
+  if (FLAGS_proportion_drf_based_scheduling) {
+    TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, task_id);
+    if (td_ptr) {
+      EquivClass_t* job_ec = FindOrNull(job_id_to_job_ec_, td_ptr->job_id());
+      if (job_ec) {
+        unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_,
+                                                       *job_ec);
+        if (tasks_set) {
+          tasks_set->erase(task_id);
+        }
+      }
+    }
+  }
   return ArcDescriptor(0LL, 1ULL, 0ULL);
 }
 
@@ -588,6 +624,17 @@ vector<EquivClass_t>* CpuCostModel::GetTaskEquivClassesForPGEquivClass(
   if (!ecs) {
     return new vector<EquivClass_t>();
   } else {
+    for (auto task_ec : *ecs) {
+      unordered_set<EquivClass_t>* pg_ecs = FindOrNull(task_ec_to_pg_ecs_,
+                                                       task_ec);
+      if (pg_ecs) {
+        pg_ecs->insert(ec_id);
+      } else {
+        unordered_set<EquivClass_t> new_pg_ecs;
+        new_pg_ecs.insert(ec_id);
+        InsertIfNotPresent(&task_ec_to_pg_ecs_, task_ec, new_pg_ecs);
+      }
+    }
     return ecs;
   }
 }
