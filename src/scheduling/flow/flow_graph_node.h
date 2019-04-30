@@ -79,6 +79,8 @@ struct FlowGraphNode {
   }
   static FlowNodeType TransformToResourceNodeType(const ResourceDescriptor& rd);
 
+  FlowGraphArc* GetOutGoingFlowGraphArc(uint64_t id);
+
   uint64_t id_;
   int64_t excess_;
   FlowNodeType type_;

@@ -36,8 +36,8 @@ service FirmamentScheduler {
   rpc AddTaskInfo (TaskInfo) returns (TaskInfoResponse);
 
   rpc QueueAdded(QueueDescriptor) returns(QueueAddedResponse) {}
-  rpc QueueUpdated(QueueDescriptor) returns(QueueUpdateResponse) {}
   rpc QueueRemoved(QueueDescriptor) returns(QueueRemoveResponse) {}
+  rpc QueueUpdated(QueueDescriptor) returns(QueueUpdateResponse) {}
 
   rpc PodGroupAdded(PodGroupDescriptor) returns(PodGroupAddedResponse) {}
   rpc PodGroupRemoved(PodGroupDescriptor) returns(PodGroupRemoveResponse) {}

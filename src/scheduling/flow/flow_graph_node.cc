@@ -69,4 +69,7 @@ namespace firmament {
     }
   }
 
+  FlowGraphArc* FlowGraphNode::GetOutGoingFlowGraphArc(uint64_t id) {
+    return FindPtrOrNull(outgoing_arc_map_, id);
+  }
 } // namespace firmament

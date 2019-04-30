@@ -27,6 +27,9 @@
 
 namespace firmament {
 
+typedef unordered_map<string, std::multimap<uint64_t, string>>
+    Qname_To_Cost_PG_Multi_Map;
+
 class Firmament_Scheduler_Service_Utils {
  private:
   Firmament_Scheduler_Service_Utils() {}
@@ -34,65 +37,61 @@ class Firmament_Scheduler_Service_Utils {
 
  public:
   static Firmament_Scheduler_Service_Utils* Instance() {
-    //*** TBD need to make to thread safe
     if (instance_ == NULL) {
       instance_ = new Firmament_Scheduler_Service_Utils;
     }
     return instance_;
   }
 
-  /*
-  inline boost::shared_ptr<QueueMap_t>* GetQueueMap() {
-          return &queue_map_;
-          }
-;
-  inline unordered_map<string, double>* GetQueueMapRatio() {
-          return &queue_map_ratio_;
-          }
-
-  inline unordered_map<string, double>* GetQueueMapProportion() {
-          return &queue_map_Proportion_;
-          }
-
-  inline unordered_map<string, double>* GetPodGroupMap() {
-          return &pod_group_map_;
-          }
-  */
   unordered_map<string, Resource_Allocated>* GetPGToResourceAllocated() {
     return &pg_to_resource_allocated_map_;
   }
 
-  unordered_map<TaskID_t, string>* GetTaskToPodGroupMap() {
-    return &task_to_pod_group_map_;
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      GetJobIdToPodGroupMap() {
+    return &job_id_to_pod_group_map_;
   }
 
   unordered_map<string, ArcCost_t>* GetPodGroupToArcCost() {
     return &pod_group_to_Arc_cost_;
   }
 
-  static Firmament_Scheduler_Service_Utils* instance_;
+  void ClearPodGroupToArcCost() { pod_group_to_Arc_cost_.clear(); }
+  unordered_map<string, Queue_Proportion>* GetQueueMapToProportion() {
+    return &queue_map_proportion_;
+  }
+
+  unordered_map<string, string>* GetPodGroupToQueue() {
+    return &pod_group_to_queue_map_;
+  }
+
+  unordered_map<string, list<string>>* GetQtoOrderedPgListMap() {
+    return &q_to_ordered_pg_list_map_;
+  }
+
+  void ClearQtoOrderedPgListMap() { q_to_ordered_pg_list_map_.clear(); }
+
+  static Firmament_Scheduler_Service_Utils* instance_;  //*** TBD
 
  private:
-  /*
-  //multi tenant support throug Queue
-boost::shared_ptr<QueueMap_t>queue_map_;
-unordered_map<string, double> queue_map_ratio_;
-unordered_map<string, Queue_Proportion> queue_map_Proportion_;
-  //map for pod group
-  unordered_map<string, PodGroupDescriptor> pod_group_map_;
-  unordered_map<string, string> pod_group_to_queue_map_;
 
-*/
+  unordered_map<string, Queue_Proportion> queue_map_proportion_;
+  unordered_map<string, string> pod_group_to_queue_map_;
   unordered_map<string, Resource_Allocated> pg_to_resource_allocated_map_;
-  unordered_map<TaskID_t, string> task_to_pod_group_map_;
+  // remove map task_to_pod_group_map_ added new
+  // unordered_map<TaskID_t, string> task_to_pod_group_map_;
+  unordered_map<JobID_t, string, boost::hash<JobID_t>> job_id_to_pod_group_map_;
   unordered_map<string, ArcCost_t> pod_group_to_Arc_cost_;
+  // Qname_To_Cost_PG_Multi_Map q_map_to_cost_pod_group_multi_map_;
+  // Pg is ordered based on the cost
+  //  list<string> ordered_pg_list_;
+  unordered_map<string, list<string>> q_to_ordered_pg_list_map_;
 
  protected:
   // add protected members here
 };
 
-// Firmament_Scheduler_Service_Utils*
-// Firmament_Scheduler_Service_Utils::instance_ =  NULL;
 }
 
 #endif  // FIRMAMENT_SCHEDULING_SERVICE_UTILS_H
+

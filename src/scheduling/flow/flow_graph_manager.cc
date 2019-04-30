@@ -131,6 +131,25 @@ void FlowGraphManager::AddOrUpdateJobNodes(
   // UpdateFlowGraph is responsible for making sure that the node_queue is
   // empty upon completion.
   UpdateFlowGraph(&node_queue, &marked_nodes);
+  unordered_map<EquivClass_t, uint32_t> pgec_to_max_flow_map;
+  cost_model_->CalculateMaxFlowForPgEcToTaskEc(&pgec_to_max_flow_map);
+
+  for(auto it = pgec_to_max_flow_map.begin();
+    it != pgec_to_max_flow_map.end();++it) {
+    FlowGraphNode* pref_ec_node = NodeForEquivClass(it->first);
+    FlowGraphArc* flow_graph_arc =
+      pref_ec_node->GetOutGoingFlowGraphArc(pref_ec_node->id_);
+
+    if(flow_graph_arc != NULL ) {
+    graph_change_manager_->ChangeArc(
+          flow_graph_arc, flow_graph_arc->cap_lower_bound_,
+          it->second, flow_graph_arc->cost_,
+          CHG_ARC_BETWEEN_EQUIV_CLASS, "Change Max flow based on proportion");
+    } else {
+    //*** TBD can assert here? or continue with maxflow = 0?
+    }
+  }
+
 }
 
 void FlowGraphManager::AddResourceTopologyDFS(

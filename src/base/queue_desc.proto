@@ -10,5 +10,5 @@ package firmament;
 message QueueDescriptor {
   uint64 uid = 1;
   string name = 2;
-  uint64 weight = 3;
+  int32 weight = 3;
 }

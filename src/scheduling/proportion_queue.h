@@ -33,8 +33,46 @@ struct Resources_Available {
   float cpu_resource;
   uInt64_t memory_resource;
   uInt64_t ephemeral_resource;
-};
 
+  Resources_Available() {
+    cpu_resource = 0.0;
+    memory_resource = 0;
+    ephemeral_resource = 0;
+  }
+  float GetCpuResource() {
+    return cpu_resource;
+  }
+  uInt64_t GetMemoryResource() {
+    return memory_resource;
+  }
+
+  uInt64_t GetEphimeralResource() {
+    return ephemeral_resource;
+  }
+
+  void SetResources(float cpuRes, uInt64_t memoryRes,
+                    uInt64_t epheRes) {
+    cpu_resource = cpuRes;
+    memory_resource = memoryRes;
+    ephemeral_resource = epheRes;
+  }
+
+  void AddResources(float cpuRes, uInt64_t memoryRes,
+                    uInt64_t epheRes) {
+    cpu_resource += cpuRes;
+    memory_resource += memoryRes;
+    ephemeral_resource += epheRes;
+    }
+
+  void DeductResources(float cpuRes, uInt64_t memoryRes,
+                    uInt64_t epheRes) {
+    cpu_resource -= cpuRes;
+    memory_resource -= memoryRes;
+    ephemeral_resource -= epheRes;
+    }
+
+
+};
 struct ResourceStatsAggregate {
   Resources_Available resource_capcity;
   Resources_Available resource_allocatable;

@@ -311,6 +311,8 @@ class CostModelInterface {
   */
  virtual void RemoveECMapsData(EquivClass_t ec_id) { }
 
+ virtual void CalculateMaxFlowForPgEcToTaskEc(
+ unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map) {};
  protected:
   shared_ptr<FlowGraphManager> flow_graph_manager_;
 };

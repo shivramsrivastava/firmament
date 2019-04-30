@@ -30,7 +30,7 @@
 #include "scheduling/knowledge_base.h"
 #include "scheduling/label_utils.h"
 #include "scheduling/firmament_scheduler_service_utils.h"
-
+#include "scheduling/proportion_queue.h"
 
 DEFINE_uint64(max_multi_arcs_for_cpu, 50, "Maximum number of multi-arcs.");
 
@@ -203,6 +203,7 @@ ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
   //based on proportion. Currently capacity is equal to the number of
   //incoming tasks from the job it is associated to.
   uint64_t capacity = 0;
+  //*** TBD remove capacity calculation
   EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, ec1);
   if (job_ec) {
     unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_, *job_ec);
@@ -210,7 +211,15 @@ ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
       capacity = tasks_set->size();
     }
   }
-  return ArcDescriptor(0LL, capacity, 0ULL);
+  JobID_t job_id = JobIDFromString(*FindOrNull(jobec_to_jobid_,*job_ec));
+
+  Firmament_Scheduler_Service_Utils* firmament_scheduler_serivice_utils =
+  Firmament_Scheduler_Service_Utils::Instance();
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group=
+  firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
+  string* pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
+
+  return ArcDescriptor(GetPodGroupDRFArchCost(pod_group_name), 0, 0ULL);
 }
 
 ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
@@ -1921,33 +1930,119 @@ ResourceID_t CpuCostModel::MachineResIDForResource(ResourceID_t res_id) {
   return ResourceIDFromString(rtnd->resource_desc().uuid());
 }
 
-/**
- *Cost of the arch based on DRF
- */
-ArcCost_t CpuCostModel::GetPodGroupDRFArchCost(string pod_group_name) {
-  Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
+  /**
+   *Cost of the arch(arch between pod group and TE) based on DRF
+   */
+  ArcCost_t CpuCostModel::GetPodGroupDRFArchCost(const string* pod_group_name) {
+
+    ArcCost_t arch_cost = INVALID_ARCH_COST;
+
+    if(pod_group_name != NULL) {
+
+      Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
       Firmament_Scheduler_Service_Utils::Instance();
-  unordered_map<string, ArcCost_t>* pod_grp_to_arch_cost =
+      unordered_map<string, ArcCost_t>* pod_grp_to_arch_cost =
       fmt_scheduler_service_utils_ptr->GetPodGroupToArcCost();
 
-  // assign invalid arch cost on error, valid arch cost can be 0 to 1000 only
-  ArcCost_t arch_cost;  // invalid arch cost
-  if (pod_grp_to_arch_cost != NULL) {
-    ArcCost_t* arch_cost_ptr =
-        FindOrNull(*pod_grp_to_arch_cost, pod_group_name);
+      //assign invalid arch cost on error, valid arch cost can be 0 to 1000 only
 
-    if (arch_cost_ptr != NULL) {
-      arch_cost = *arch_cost_ptr;
-    } else {
-      arch_cost = INVALID_ARCH_COST;  // invalid arch cost ...TBD do we need to
-                                      // do somthing like assert?
+      if(pod_grp_to_arch_cost != NULL) {
+
+        ArcCost_t* arch_cost_ptr = FindOrNull(*pod_grp_to_arch_cost, *pod_group_name);
+
+        if(arch_cost_ptr != NULL) {
+          arch_cost = *arch_cost_ptr;
+        } else {/*arch_cost = INVALID_ARCH_COST; *** TBD do we need to do somthing like assert?	*/}
+      } else {/*arch_cost = INVALID_ARCH_COST; *** TBD invalid arch cost ...TBD do we need to assert?*/	}
     }
-  } else {
-    arch_cost =
-        INVALID_ARCH_COST;  // invalid arch cost ...TBD do we need to assert?
+    return arch_cost;
   }
 
-  return arch_cost;
-}
 
+void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
+    unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map) {
+    Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
+      Firmament_Scheduler_Service_Utils::Instance();
+
+    unordered_map <string,list<string>>* q_to_ordered_pg_list_map =
+      fmt_scheduler_service_utils_ptr->GetQtoOrderedPgListMap();
+
+    //go through all the Queues in the map
+    for(auto iter = q_to_ordered_pg_list_map->begin();
+      iter != q_to_ordered_pg_list_map->end(); ++iter) {
+      float cpu_cores_requst = 0;
+      uInt64_t memory_resource_request = 0;
+      uInt64_t ephimeral_resource_request = 0;
+
+      //go through all the Pod group
+      auto pg_list = iter->second;
+      for(auto pgIter = pg_list.begin();
+        pgIter != pg_list.end(); pgIter++) {
+
+        //get the pod group name
+        string pod_group_name(*pgIter);
+        //list all PGEcs
+        list<EquivClass_t>* pg_ecs =
+          FindOrNull(pg_name_to_pg_ec_inorder_,pod_group_name);
+        if(pg_ecs != NULL) {
+          uint64_t maxFlow = 0;
+          for(auto pgEcIter = pg_ecs->begin();
+            pgEcIter != pg_ecs->end(); ++pgEcIter) {
+            //get job ec
+            EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *pgEcIter);
+            if(job_ec != NULL) {
+              //get all the task under the job and calculate all the requested
+              //resources
+              unordered_set<TaskID_t>* task_set =
+                FindOrNull(job_ec_to_tasks_, *job_ec);
+              uint32_t numOfTaskInJob = task_set->size();
+              auto it = (task_set->begin());
+              CpuMemResVector_t* resource_vector =
+                FindOrNull(task_resource_requirement_,*it);
+              cpu_cores_requst +=
+                numOfTaskInJob * resource_vector->cpu_cores_;
+
+              //ResourceStatsAggregate* resource_Agg_ptr =
+              //  knowledge_base_->GetResourceStatsAgg();
+              auto* queue_map_proportion_ptr =
+                fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
+              Queue_Proportion* q_proportion_ptr =
+                FindOrNull(*queue_map_proportion_ptr, iter->first);
+              float deserved_cpu_for_q =
+                q_proportion_ptr->GetDeservedResource().GetCpuResource();//this can be moved up
+              if( (deserved_cpu_for_q - cpu_cores_requst) < 0) {
+                numOfTaskInJob = numOfTaskInJob -
+                  ceil((cpu_cores_requst -deserved_cpu_for_q)/numOfTaskInJob);
+              }
+              uInt64_t deserved_mem_for_q =
+                q_proportion_ptr->GetDeservedResource().GetMemoryResource();
+              memory_resource_request +=
+                numOfTaskInJob * resource_vector->ram_cap_;
+              if( (deserved_mem_for_q - memory_resource_request) < 0) {
+                numOfTaskInJob = numOfTaskInJob -
+                  ceil((memory_resource_request -deserved_mem_for_q)/numOfTaskInJob);
+              }
+
+              ephimeral_resource_request +=
+                numOfTaskInJob * resource_vector->ephemeral_storage_;
+
+              uInt64_t deserved_ephimeral_for_q =
+                q_proportion_ptr->GetDeservedResource().GetEphimeralResource();
+
+              if( (deserved_ephimeral_for_q - ephimeral_resource_request) < 0) {
+                numOfTaskInJob = numOfTaskInJob -
+                  ceil((ephimeral_resource_request -deserved_ephimeral_for_q)/numOfTaskInJob);
+              }
+
+              if(numOfTaskInJob < 1) {
+                numOfTaskInJob = 0;
+                break;
+                }
+               InsertIfNotPresent(pgec_to_max_flow_map, *pgEcIter, numOfTaskInJob);
+            }
+          }
+        }
+      }
+    }
+  }
 }  // namespace firmament

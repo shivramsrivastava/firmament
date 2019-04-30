@@ -223,7 +223,9 @@ class CpuCostModel : public CostModelInterface {
   void ClearUnscheduledTasksData();
   // Get unscheduled tasks in a scheduling round.
   void GetUnscheduledTasks(vector<uint64_t>* unscheduled_tasks_ptr);
-  ArcCost_t GetPodGroupDRFArchCost(string pod_group_name);
+  ArcCost_t GetPodGroupDRFArchCost(const string* pod_group_name);
+  void CalculateMaxFlowForPgEcToTaskEc(
+  unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map);
 
  private:
   // Fixed value for OMEGA, the normalization ceiling for each dimension's cost

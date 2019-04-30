@@ -155,6 +155,7 @@ class FlowScheduler : public EventDrivenScheduler {
   void CalculatePodGroupArcCostDRF(const TaskDescriptor& td);
   template <class T>
   float ResourceRatio(T aggregate, T allocated);
+  void HandleAllocatedResourceForPgAndQ(const TaskDescriptor& task_descriptor);
 
 
   // Pointer to the coordinator's topology manager
