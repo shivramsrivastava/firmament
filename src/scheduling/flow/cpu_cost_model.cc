@@ -573,14 +573,20 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
   size_t PG_agg = 0;
   string* job_id = FindOrNull(jobec_to_jobid_, ec_id);
   if (job_id) {
-    //TODO(Pratik): Get pod group name from job descriptor and use it here.
-    boost::hash_combine(PG_agg, "PodGroup1" + *job_id);
+    Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
+                                Firmament_Scheduler_Service_Utils::Instance();
+    unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_pg_name_map =
+                      fmt_scheduler_service_utils_ptr->GetJobIdToPodGroupMap();
+    string* pg_name = FindOrNull(*job_id_pg_name_map,
+                                    JobIDFromString(*job_id));
+    CHECK_NOTNULL(pg_name);
+    boost::hash_combine(PG_agg, *pg_name + *job_id);
     EquivClass_t PG_ec = static_cast<EquivClass_t>(PG_agg);
     ecs->push_back(PG_ec);
     InsertIfNotPresent(&podgroup_ec_to_jobid_, PG_ec, *job_id);
     //TODO(Pratik): Get pod group name from job descriptor and use it here.
     list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
-                                                "PodGroup1");
+                                                *pg_name);
     if (pg_ec_list) {
       uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
       if (curr_cost) {
@@ -605,10 +611,10 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
       list<EquivClass_t> new_pg_ecs;
       new_pg_ecs.push_back(PG_ec);
       //TODO(Pratik): Get pod group name from job descriptor and use it here.
-      InsertIfNotPresent(&pg_name_to_pg_ec_inorder_, "PodGroup1", new_pg_ecs);
+      InsertIfNotPresent(&pg_name_to_pg_ec_inorder_, *pg_name, new_pg_ecs);
     }
     //TODO(Pratik): Get pod group name from job descriptor and use it here.
-    InsertIfNotPresent(&pg_ec_to_pg_name_, PG_ec, "PodGroup1");
+    InsertIfNotPresent(&pg_ec_to_pg_name_, PG_ec, *pg_name);
   }
   return ecs;
 }
