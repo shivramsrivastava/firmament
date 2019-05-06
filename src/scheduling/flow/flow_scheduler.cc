@@ -1244,8 +1244,8 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
 
       unordered_map<string, ArcCost_t>* pod_grp_to_arc_cost =
       fmt_sched_service_utils_->GetPodGroupToArcCost();
-      InsertIfNotPresent(pod_grp_to_arc_cost,*pod_group_name_ptr, arc_cost_for_pg);
-
+      InsertIfNotPresent(pod_grp_to_arc_cost,*pod_group_name_ptr,
+                                             arc_cost_for_pg);
 
       //update the Qname to cost and pg multi map
       unordered_map<string, string>* pod_group_to_queue_map_ptr =
@@ -1254,16 +1254,16 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
       string *queue_name =
         FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
 
-      unordered_map <string, list<string>>* q_to_ordered_pg_list_ptr =
+      unordered_map <string, list<string>>* queue_to_ordered_pg_list_ptr =
         fmt_sched_service_utils_->GetQtoOrderedPgListMap();
 
       //add the pod group into the list base on cost, lower cost in the begining
       list<string>* ordered_pg_list_ptr =
-        FindOrNull(*q_to_ordered_pg_list_ptr, *queue_name);
+        FindOrNull(*queue_to_ordered_pg_list_ptr, *queue_name);
       if(ordered_pg_list_ptr != NULL) {
         bool inserted = false;
-        for(auto it = ordered_pg_list_ptr->begin(); it != ordered_pg_list_ptr->end();
-        ++it) {
+        for(auto it = ordered_pg_list_ptr->begin();
+                                 it != ordered_pg_list_ptr->end(); ++it) {
         ArcCost_t* arc_cost = FindOrNull(*pod_grp_to_arc_cost, *it);
           if(*arc_cost > arc_cost_for_pg) {
             ordered_pg_list_ptr->insert(it, *pod_group_name_ptr);
@@ -1278,7 +1278,8 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
      //no info present so create and it to the list
      list<string> pod_group_name_list;
      pod_group_name_list.push_back(*pod_group_name_ptr);
-     InsertIfNotPresent(q_to_ordered_pg_list_ptr, *queue_name, pod_group_name_list);
+     InsertIfNotPresent(queue_to_ordered_pg_list_ptr,
+                                         *queue_name, pod_group_name_list);
      }
       }else {/*handle this case*/}
     } else {/*need to handle this case*/}

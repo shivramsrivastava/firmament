@@ -69,7 +69,7 @@ DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
 
-#define DEFAULT_Q_NAME "default"
+#define DEFAULT_QUEUE_NAME "default"
 #define MIN_MEMBER_FOR_NILL_PG_JOB 1
 
 class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
@@ -1305,8 +1305,8 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         LOG(INFO)<<"PodGroup Added name = "<<pod_group_desc_ptr->name()
             <<"Queue name in Pg ="<< queue_name<<endl;
         if(queue_name == string("")) {
-          queue_name = string(DEFAULT_Q_NAME);
-          }
+          queue_name = string(DEFAULT_QUEUE_NAME);
+        }
         InsertIfNotPresent(pod_group_to_queue_map_ptr,
         pod_group_desc_ptr->name(),queue_name);
 
@@ -1357,12 +1357,12 @@ Status PodGroupRemoved(ServerContext* context,
         if(it->second == pod_group_name) {
           job_id_to_pod_group_map_ptr->erase(it->first);
         }
-        auto q_to_ordered_pg_list_map_ptr =
+        auto queue_to_ordered_pg_list_map_ptr =
               firmament_scheduler_serivice_utils_->GetQtoOrderedPgListMap();
-        for(auto it = q_to_ordered_pg_list_map_ptr->begin();
-            it != q_to_ordered_pg_list_map_ptr->end(); ++it) {
+        for(auto it = queue_to_ordered_pg_list_map_ptr->begin();
+            it != queue_to_ordered_pg_list_map_ptr->end(); ++it) {
           if(*it->second.begin() == pod_group_name) {
-            q_to_ordered_pg_list_map_ptr->erase(it->first);
+            queue_to_ordered_pg_list_map_ptr->erase(it->first);
           }
         }
       }
@@ -1395,7 +1395,7 @@ Status PodGroupRemoved(ServerContext* context,
 
   PodGroupDescriptor pod_group_descriptor;
   pod_group_descriptor.set_name(pod_group_name);
-  pod_group_descriptor.set_queuename(DEFAULT_Q_NAME);
+  pod_group_descriptor.set_queuename(DEFAULT_QUEUE_NAME);
   pod_group_descriptor.set_minmember(MIN_MEMBER_FOR_NILL_PG_JOB);
   unordered_map<string, string>* pod_group_to_queue_map_ptr =
      firmament_scheduler_serivice_utils_->GetPodGroupToQueue();
@@ -1403,7 +1403,7 @@ Status PodGroupRemoved(ServerContext* context,
       firmament_scheduler_serivice_utils_->GetPodGroupMap();
   InsertIfNotPresent(pod_group_map_ptr, pod_group_name, pod_group_descriptor);
   InsertIfNotPresent(pod_group_to_queue_map_ptr, pod_group_name,
-                     DEFAULT_Q_NAME);
+                     DEFAULT_QUEUE_NAME);
   }
 
 

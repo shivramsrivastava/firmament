@@ -306,13 +306,17 @@ class CostModelInterface {
     return NULL;
   }
 
- /*
-  * Clears data related to EC from maps.
-  */
- virtual void RemoveECMapsData(EquivClass_t ec_id) { }
+  /*
+   * Clears data related to EC from maps.
+   */
+  virtual void RemoveECMapsData(EquivClass_t ec_id) { }
 
- virtual void CalculateMaxFlowForPgEcToTaskEc(
- unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map) {};
+  /*
+   * Calculate and stores max capacity from pod group EC to task EC in a map.
+   */
+  virtual void CalculateMaxFlowForPgEcToTaskEc(
+          unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map) {};
+
  protected:
   shared_ptr<FlowGraphManager> flow_graph_manager_;
 };

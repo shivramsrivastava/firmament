@@ -31,17 +31,6 @@ typedef unordered_map<string, std::multimap<uint64_t, string>>
     Qname_To_Cost_PG_Multi_Map;
 
 class Firmament_Scheduler_Service_Utils {
- private:
-  Firmament_Scheduler_Service_Utils() {
-    queue_map_proportion_.clear();
-    pod_group_to_queue_map_.clear();
-    pg_to_resource_allocated_map_.clear();
-    job_id_to_pod_group_map_.clear();
-    q_to_ordered_pg_list_map_.clear();
-    pod_group_map_.clear();
-  }
-  ~Firmament_Scheduler_Service_Utils() {}
-
  public:
   static Firmament_Scheduler_Service_Utils* Instance() {
     if (instance_ == NULL) {
@@ -57,61 +46,55 @@ class Firmament_Scheduler_Service_Utils {
     }
   }
 
-  unordered_map<string, Resource_Allocated>* GetPGToResourceAllocated() {
+  inline unordered_map<string, Resource_Allocated>*
+                               GetPGToResourceAllocated() {
     return &pg_to_resource_allocated_map_;
   }
 
-  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+  inline unordered_map<JobID_t, string, boost::hash<JobID_t>>*
       GetJobIdToPodGroupMap() {
     return &job_id_to_pod_group_map_;
   }
 
-  unordered_map<string, ArcCost_t>* GetPodGroupToArcCost() {
+  inline unordered_map<string, ArcCost_t>* GetPodGroupToArcCost() {
     return &pod_group_to_Arc_cost_;
   }
 
-  void ClearPodGroupToArcCost() { pod_group_to_Arc_cost_.clear(); }
-  unordered_map<string, Queue_Proportion>* GetQueueMapToProportion() {
+  inline void ClearPodGroupToArcCost() { pod_group_to_Arc_cost_.clear(); }
+
+  inline unordered_map<string, Queue_Proportion>* GetQueueMapToProportion() {
     return &queue_map_proportion_;
   }
 
-  unordered_map<string, string>* GetPodGroupToQueue() {
+  inline unordered_map<string, string>* GetPodGroupToQueue() {
     return &pod_group_to_queue_map_;
   }
 
-  unordered_map<string, list<string>>* GetQtoOrderedPgListMap() {
-    return &q_to_ordered_pg_list_map_;
+  inline unordered_map<string, list<string>>* GetQtoOrderedPgListMap() {
+    return &queue_to_ordered_pg_list_map_;
   }
 
-  void ClearQtoOrderedPgListMap() { q_to_ordered_pg_list_map_.clear();}
+  inline void ClearQtoOrderedPgListMap() { queue_to_ordered_pg_list_map_.clear(); }
 
-  unordered_map<string, PodGroupDescriptor>* GetPodGroupMap() {
+  inline unordered_map<string, PodGroupDescriptor>* GetPodGroupMap() {
     return &pod_group_map_;
   }
 
-  static Firmament_Scheduler_Service_Utils* instance_;//*** TBD
+  static Firmament_Scheduler_Service_Utils* instance_;
 
  private:
+  Firmament_Scheduler_Service_Utils() {}
+  ~Firmament_Scheduler_Service_Utils() {}
 
   unordered_map<string, Queue_Proportion> queue_map_proportion_;
   unordered_map<string, string> pod_group_to_queue_map_;
   unordered_map<string, Resource_Allocated> pg_to_resource_allocated_map_;
-  // remove map task_to_pod_group_map_ added new
-  // unordered_map<TaskID_t, string> task_to_pod_group_map_;
   unordered_map<JobID_t, string, boost::hash<JobID_t>> job_id_to_pod_group_map_;
   unordered_map<string, ArcCost_t> pod_group_to_Arc_cost_;
-  // Qname_To_Cost_PG_Multi_Map q_map_to_cost_pod_group_multi_map_;
-  // Pg is ordered based on the cost
-  //  list<string> ordered_pg_list_;
-  unordered_map<string, list<string>> q_to_ordered_pg_list_map_;
+  unordered_map<string, list<string>> queue_to_ordered_pg_list_map_;
   unordered_map<string, PodGroupDescriptor> pod_group_map_;
-
-
- protected:
-  // add protected members here
 };
 
-}
+} // namespace firmament
 
 #endif  // FIRMAMENT_SCHEDULING_SERVICE_UTILS_H
-
