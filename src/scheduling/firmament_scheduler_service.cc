@@ -1124,7 +1124,8 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
 
     if (queue_desc_ptr != NULL) {
       string queue_name(queue_desc_ptr->name());
-      if(queue_name == string("")) {
+      cout<<"queue_name"<<queue_name<<endl;
+      if(queue_name != string("")) {
       bool exist = InsertIfNotPresent(queue_map_.get(), queue_name,
                                       *queue_desc_ptr);
       if (!exist) {
