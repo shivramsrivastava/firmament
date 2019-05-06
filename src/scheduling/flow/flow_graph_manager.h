@@ -401,6 +401,7 @@ class FlowGraphManager {
   inline FlowGraphNode* UnschedAggNodeForJobID(JobID_t job_id) {
     return FindPtrOrNull(job_unsched_to_node_, job_id);
   }
+  void UpdateMaxFlowForProportion();
 
   // Resource and task mappings
   unordered_map<TaskID_t, FlowGraphNode*> task_to_node_map_;

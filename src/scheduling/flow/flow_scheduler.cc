@@ -186,6 +186,8 @@ FlowScheduler::FlowScheduler(
   flow_graph_manager_->AddResourceTopology(resource_topology);
   // Set up the dispatcher, which starts the flow solver
   solver_dispatcher_ = new SolverDispatcher(flow_graph_manager_, false);
+  fmt_sched_service_utils_ =
+      Firmament_Scheduler_Service_Utils::Instance();
 }
 
 FlowScheduler::~FlowScheduler() {
@@ -372,6 +374,9 @@ void FlowScheduler::HandleJobCompletion(JobID_t job_id) {
   // Job completed, so remove its nodes
   flow_graph_manager_->JobCompleted(job_id);
   RemoveAffinityAntiAffinityJobData(job_id);
+  if(FLAGS_proportion_drf_based_scheduling) {
+    RemoveDummyPg(job_id);
+  }
   // Call into superclass handler
   EventDrivenScheduler::HandleJobCompletion(job_id);
 }
@@ -383,6 +388,9 @@ void FlowScheduler::HandleJobRemoval(JobID_t job_id) {
   if (jdp) {
     affinity_job_to_deltas_.erase(jdp);
     RemoveAffinityAntiAffinityJobData(job_id);
+  }
+  if(FLAGS_proportion_drf_based_scheduling) {
+    RemoveDummyPg(job_id);
   }
   // Call into superclass handler
   EventDrivenScheduler::HandleJobRemoval(job_id);
@@ -515,9 +523,9 @@ void FlowScheduler::HandleTaskPlacement(TaskDescriptor* td_ptr,
   cost_model_->UpdateResourceToNamespacesMap(res_id,
                                              td_ptr->task_namespace(), true);
 
-	if(FLAGS_proportion_drf_based_scheduling) {
-		HandleAllocatedResourceForPgAndQ(*td_ptr);
-	}
+  if(FLAGS_proportion_drf_based_scheduling) {
+    HandleAllocatedResourceForPgAndQ(*td_ptr);
+  }
 
   EventDrivenScheduler::HandleTaskPlacement(td_ptr, rd_ptr);
 }
@@ -708,10 +716,8 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
   }
 
   if(FLAGS_proportion_drf_based_scheduling) {
-    Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
-    Firmament_Scheduler_Service_Utils::Instance();
-    fmt_scheduler_service_utils_ptr->ClearPodGroupToArcCost();
-    fmt_scheduler_service_utils_ptr->ClearQtoOrderedPgListMap();
+    fmt_sched_service_utils_->ClearPodGroupToArcCost();
+    fmt_sched_service_utils_->ClearQtoOrderedPgListMap();
   }
 
   for (auto& job_id_jd : jobs_to_schedule_) {
@@ -1185,23 +1191,24 @@ void FlowScheduler::UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {
 }
 
 void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
-  Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
-    Firmament_Scheduler_Service_Utils::Instance();
-
   unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group_map_ptr =
-      fmt_scheduler_service_utils_ptr->GetJobIdToPodGroupMap();
+      fmt_sched_service_utils_->GetJobIdToPodGroupMap();
   string* pod_group_name_ptr =  FindOrNull(*job_id_to_pod_group_map_ptr,
     JobIDFromString(td.job_id()));
   if(pod_group_name_ptr != NULL) {
     unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
-      fmt_scheduler_service_utils_ptr->GetPGToResourceAllocated();
+      fmt_sched_service_utils_->GetPGToResourceAllocated();
     Resource_Allocated* allocated_resource_ptr =
       FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
 
     if(allocated_resource_ptr != NULL) {
-
       ResourceStatsAggregate resource_aggregate =
         knowledge_base_->GetResourceStatsAgg();
+
+      cout<<"cpu aggregate ="
+          <<resource_aggregate.resource_allocatable.cpu_resource<<endl;
+      cout<<"cpu allocated ="<<allocated_resource_ptr->cpu_resource<<endl;
+
       /*TBD here we should put a list to iterate through the resources*/
       float cpu_resource_ratio = ResourceRatio(
       resource_aggregate.resource_allocatable.cpu_resource,
@@ -1232,21 +1239,23 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
       //converting ratio into cost by * with 1000
       //so this value would be between 0 to 1000
       ratio *= 1000;
+      LOG(INFO)<<"***COST  = "<<ratio<<endl;
       ArcCost_t arc_cost_for_pg = (ArcCost_t)ratio;
+
       unordered_map<string, ArcCost_t>* pod_grp_to_arc_cost =
-      fmt_scheduler_service_utils_ptr->GetPodGroupToArcCost();
+      fmt_sched_service_utils_->GetPodGroupToArcCost();
       InsertIfNotPresent(pod_grp_to_arc_cost,*pod_group_name_ptr, arc_cost_for_pg);
 
 
       //update the Qname to cost and pg multi map
       unordered_map<string, string>* pod_group_to_queue_map_ptr =
-        fmt_scheduler_service_utils_ptr->GetPodGroupToQueue();
+        fmt_sched_service_utils_->GetPodGroupToQueue();
 
       string *queue_name =
         FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
 
       unordered_map <string, list<string>>* q_to_ordered_pg_list_ptr =
-        fmt_scheduler_service_utils_ptr->GetQtoOrderedPgListMap();
+        fmt_sched_service_utils_->GetQtoOrderedPgListMap();
 
       //add the pod group into the list base on cost, lower cost in the begining
       list<string>* ordered_pg_list_ptr =
@@ -1280,7 +1289,6 @@ template <typename T>
   float FlowScheduler::ResourceRatio(T aggregate, T allocated) {
   float temp_ratio = 0 ;
   if(aggregate == 0) {
-
     if(allocated == 0) {
       temp_ratio = 0;
     } else {
@@ -1288,11 +1296,10 @@ template <typename T>
     }
   }
   else {
-    temp_ratio =
-    (allocated / aggregate);
+    temp_ratio = ((float)allocated / aggregate);
   }
+  cout<<"*** cost ratio = "<<temp_ratio<<endl;
   return temp_ratio;
-
   }
 
 /**
@@ -1301,14 +1308,10 @@ template <typename T>
 void FlowScheduler::HandleAllocatedResourceForPgAndQ(
   const TaskDescriptor& task_descriptor) {
 
-  Firmament_Scheduler_Service_Utils* fmt_sched_service_utils
-    = Firmament_Scheduler_Service_Utils::Instance();
-
   // 2 steps 1. update the pod group allocated 2. update the Q allocated
-
   //step 	1. update the pod group
   unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group_ptr
-    = fmt_sched_service_utils->GetJobIdToPodGroupMap();
+    = fmt_sched_service_utils_->GetJobIdToPodGroupMap();
   string* pod_group_name_ptr = FindOrNull(*job_id_to_pod_group_ptr,
     JobIDFromString(task_descriptor.job_id()));
 
@@ -1318,7 +1321,7 @@ void FlowScheduler::HandleAllocatedResourceForPgAndQ(
 
     if(pod_group_name_ptr != NULL) {
     unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
-      fmt_sched_service_utils->GetPGToResourceAllocated();
+      fmt_sched_service_utils_->GetPGToResourceAllocated();
     Resource_Allocated* resource_allocated_ptr =
       FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
 
@@ -1331,10 +1334,10 @@ void FlowScheduler::HandleAllocatedResourceForPgAndQ(
     //step 2. update the Queue proportion
 
     unordered_map<string, string>* pod_group_to_queue_map_ptr =
-      fmt_sched_service_utils->GetPodGroupToQueue();
+      fmt_sched_service_utils_->GetPodGroupToQueue();
 
     unordered_map<string, Queue_Proportion>* queue_map_Proportion_ptr =
-      fmt_sched_service_utils->GetQueueMapToProportion();
+      fmt_sched_service_utils_->GetQueueMapToProportion();
 
     string *queue_name =
       FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
@@ -1355,6 +1358,20 @@ void FlowScheduler::HandleAllocatedResourceForPgAndQ(
         //do we need to assert?
     }
   }
+}
+
+void FlowScheduler::RemoveDummyPg(JobID_t job_id) {
+  JobDescriptor* job_desc_ptr = FindOrNull(*job_map_, job_id);
+  if(job_desc_ptr->pod_group_name() == string("")) {
+    auto job_id_to_pod_group =
+      fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+    job_id_to_pod_group->erase(job_id);
+    auto pod_group_map_ptr = fmt_sched_service_utils_->GetPodGroupMap();
+    pod_group_map_ptr->erase(job_desc_ptr->uuid());
+    auto pod_group_to_queue_map_ptr =
+        fmt_sched_service_utils_->GetPodGroupToQueue();
+    pod_group_to_queue_map_ptr->erase(job_desc_ptr->uuid());
+  } else {/* else do nothing */}
 }
 
 }  // namespace scheduler

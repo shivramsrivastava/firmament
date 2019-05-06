@@ -131,25 +131,10 @@ void FlowGraphManager::AddOrUpdateJobNodes(
   // UpdateFlowGraph is responsible for making sure that the node_queue is
   // empty upon completion.
   UpdateFlowGraph(&node_queue, &marked_nodes);
-  unordered_map<EquivClass_t, uint32_t> pgec_to_max_flow_map;
-  cost_model_->CalculateMaxFlowForPgEcToTaskEc(&pgec_to_max_flow_map);
-
-  for(auto it = pgec_to_max_flow_map.begin();
-    it != pgec_to_max_flow_map.end();++it) {
-    FlowGraphNode* pref_ec_node = NodeForEquivClass(it->first);
-    FlowGraphArc* flow_graph_arc =
-      pref_ec_node->GetOutGoingFlowGraphArc(pref_ec_node->id_);
-
-    if(flow_graph_arc != NULL ) {
-    graph_change_manager_->ChangeArc(
-          flow_graph_arc, flow_graph_arc->cap_lower_bound_,
-          it->second, flow_graph_arc->cost_,
-          CHG_ARC_BETWEEN_EQUIV_CLASS, "Change Max flow based on proportion");
-    } else {
-    //*** TBD can assert here? or continue with maxflow = 0?
+  if(FLAGS_proportion_drf_based_scheduling) 
+    {
+    UpdateMaxFlowForProportion();
     }
-  }
-
 }
 
 void FlowGraphManager::AddResourceTopologyDFS(
@@ -1480,5 +1465,25 @@ void FlowGraphManager::VisitTopologyChildren(
          (*child_iter)->resource_desc().num_running_tasks_below());
   }
 }
+
+void FlowGraphManager::UpdateMaxFlowForProportion() {
+  unordered_map<EquivClass_t, uint32_t> pgec_to_max_flow_map;
+  cost_model_->CalculateMaxFlowForPgEcToTaskEc(&pgec_to_max_flow_map);
+  for(auto it = pgec_to_max_flow_map.begin();
+    it != pgec_to_max_flow_map.end();++it) {
+    LOG(INFO)<<"max flow = "<<it->second<<endl;
+    FlowGraphNode* pref_ec_node = NodeForEquivClass(it->first);
+    FlowGraphArc* flow_graph_arc = pref_ec_node->outgoing_arc_map_.begin()->second;
+    if(flow_graph_arc) {
+    graph_change_manager_->ChangeArc(
+          flow_graph_arc, flow_graph_arc->cap_lower_bound_,
+          it->second, flow_graph_arc->cost_,
+          CHG_ARC_BETWEEN_EQUIV_CLASS, "Change Max flow based on proportion");
+    } else {
+    LOG(FATAL)<<"!!! flow_graph_arc can not be NULL"<<endl;
+    }
+  }
+}
+
 
 }  // namespace firmament

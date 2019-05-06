@@ -2019,7 +2019,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
 
     unordered_map <string,list<string>>* q_to_ordered_pg_list_map =
       fmt_scheduler_service_utils_ptr->GetQtoOrderedPgListMap();
-
+    cout<<"*** CalculateMaxFlowForPgEcToTaskEc"<<endl;
     //go through all the Queues in the map
     for(auto iter = q_to_ordered_pg_list_map->begin();
       iter != q_to_ordered_pg_list_map->end(); ++iter) {
@@ -2034,24 +2034,36 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
 
         //get the pod group name
         string pod_group_name(*pgIter);
+        cout<<"***pod_group_name"<<pod_group_name<<endl;
+
         //list all PGEcs
         list<EquivClass_t>* pg_ecs =
           FindOrNull(pg_name_to_pg_ec_inorder_,pod_group_name);
+        cout<<"*** before pg_ecs != NULL"<<endl;
         if(pg_ecs != NULL) {
+
+          cout<<"*** after pg_ecs != NULL"<<endl;
+
           uint64_t maxFlow = 0;
           for(auto pgEcIter = pg_ecs->begin();
             pgEcIter != pg_ecs->end(); ++pgEcIter) {
             //get job ec
             EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *pgEcIter);
+            cout<<"*** before job_ec != NULL"<<endl;
             if(job_ec != NULL) {
               //get all the task under the job and calculate all the requested
               //resources
+              cout<<"*** after job_ec != NULL"<<endl;
+
               unordered_set<TaskID_t>* task_set =
                 FindOrNull(job_ec_to_tasks_, *job_ec);
-              uint32_t numOfTaskInJob = task_set->size();
+              int32_t numOfTaskInJob = task_set->size();
               auto it = (task_set->begin());
               CpuMemResVector_t* resource_vector =
                 FindOrNull(task_resource_requirement_,*it);
+              cout<<"***numOfTaskInJob = "<<numOfTaskInJob<<endl;
+              cout<<"***cpu_cores_ = "<<resource_vector->cpu_cores_<<endl;
+
               cpu_cores_requst +=
                 numOfTaskInJob * resource_vector->cpu_cores_;
 
@@ -2059,14 +2071,22 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
               //  knowledge_base_->GetResourceStatsAgg();
               auto* queue_map_proportion_ptr =
                 fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
+              
               Queue_Proportion* q_proportion_ptr =
                 FindOrNull(*queue_map_proportion_ptr, iter->first);
+              cout<<"***cpu_cost queue name  = "<<iter->first<<endl;
+
               float deserved_cpu_for_q =
                 q_proportion_ptr->GetDeservedResource().GetCpuResource();//this can be moved up
+
+              cout<<"***deserved_cpu_for_q = "<<deserved_cpu_for_q<<endl;
+              cout<<"***cpu_cores_requst = "<<cpu_cores_requst<<endl;
+                
               if( (deserved_cpu_for_q - cpu_cores_requst) < 0) {
                 numOfTaskInJob = numOfTaskInJob -
                   ceil((cpu_cores_requst -deserved_cpu_for_q)/numOfTaskInJob);
               }
+              cout<<"***numOfTaskInJob after cpu  = "<<numOfTaskInJob<<endl;
               uInt64_t deserved_mem_for_q =
                 q_proportion_ptr->GetDeservedResource().GetMemoryResource();
               memory_resource_request +=
@@ -2075,6 +2095,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 numOfTaskInJob = numOfTaskInJob -
                   ceil((memory_resource_request -deserved_mem_for_q)/numOfTaskInJob);
               }
+              cout<<"***numOfTaskInJob after mem  = "<<numOfTaskInJob<<endl;
 
               ephimeral_resource_request +=
                 numOfTaskInJob * resource_vector->ephemeral_storage_;
@@ -2086,6 +2107,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 numOfTaskInJob = numOfTaskInJob -
                   ceil((ephimeral_resource_request -deserved_ephimeral_for_q)/numOfTaskInJob);
               }
+              cout<<"***numOfTaskInJob after ephimeral  = "<<numOfTaskInJob<<endl;
 
               if(numOfTaskInJob < 1) {
                 numOfTaskInJob = 0;

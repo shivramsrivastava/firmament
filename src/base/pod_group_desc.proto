@@ -9,7 +9,7 @@ package firmament;
 
 message PodGroupDescriptor {
   uint64 uid = 1;
-  uint64 minMember = 2;
+  int32 minMember = 2;
   string name = 3;
   string queueName = 4;
 }

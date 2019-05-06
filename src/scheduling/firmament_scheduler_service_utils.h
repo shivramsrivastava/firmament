@@ -32,7 +32,14 @@ typedef unordered_map<string, std::multimap<uint64_t, string>>
 
 class Firmament_Scheduler_Service_Utils {
  private:
-  Firmament_Scheduler_Service_Utils() {}
+  Firmament_Scheduler_Service_Utils() {
+    queue_map_proportion_.clear();
+    pod_group_to_queue_map_.clear();
+    pg_to_resource_allocated_map_.clear();
+    job_id_to_pod_group_map_.clear();
+    q_to_ordered_pg_list_map_.clear();
+    pod_group_map_.clear();
+  }
   ~Firmament_Scheduler_Service_Utils() {}
 
  public:
@@ -41,6 +48,13 @@ class Firmament_Scheduler_Service_Utils {
       instance_ = new Firmament_Scheduler_Service_Utils;
     }
     return instance_;
+  }
+
+  static void RemoveInstance() {
+    if (instance_ != NULL) {
+      delete instance_;
+      instance_ = NULL;
+    }
   }
 
   unordered_map<string, Resource_Allocated>* GetPGToResourceAllocated() {
@@ -69,9 +83,13 @@ class Firmament_Scheduler_Service_Utils {
     return &q_to_ordered_pg_list_map_;
   }
 
-  void ClearQtoOrderedPgListMap() { q_to_ordered_pg_list_map_.clear(); }
+  void ClearQtoOrderedPgListMap() { q_to_ordered_pg_list_map_.clear();}
 
-  static Firmament_Scheduler_Service_Utils* instance_;  //*** TBD
+  unordered_map<string, PodGroupDescriptor>* GetPodGroupMap() {
+    return &pod_group_map_;
+  }
+
+  static Firmament_Scheduler_Service_Utils* instance_;//*** TBD
 
  private:
 
@@ -86,6 +104,8 @@ class Firmament_Scheduler_Service_Utils {
   // Pg is ordered based on the cost
   //  list<string> ordered_pg_list_;
   unordered_map<string, list<string>> q_to_ordered_pg_list_map_;
+  unordered_map<string, PodGroupDescriptor> pod_group_map_;
+
 
  protected:
   // add protected members here

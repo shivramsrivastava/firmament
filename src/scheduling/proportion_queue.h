@@ -25,6 +25,9 @@
 #ifndef FIRMAMENT_SCHEDULING_QUEUE_H
 #define FIRMAMENT_SCHEDULING_QUEUE_H
 
+#include<iostream>
+using namespace std;
+
 namespace firmament {
 
 typedef unsigned long long uInt64_t;
@@ -35,6 +38,7 @@ struct Resources_Available {
   uInt64_t ephemeral_resource;
 
   Resources_Available() {
+    cout<<"*** initiling cpu_res mem and ephemeral res"<<endl;
     cpu_resource = 0.0;
     memory_resource = 0;
     ephemeral_resource = 0;

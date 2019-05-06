@@ -43,6 +43,8 @@
 #include "scheduling/flow/flow_graph_manager.h"
 #include "scheduling/flow/solver_dispatcher.h"
 #include "storage/reference_interface.h"
+#include "scheduling/firmament_scheduler_service_utils.h"
+
 
 DECLARE_int32(flow_scheduling_cost_model);
 
@@ -156,6 +158,7 @@ class FlowScheduler : public EventDrivenScheduler {
   template <class T>
   float ResourceRatio(T aggregate, T allocated);
   void HandleAllocatedResourceForPgAndQ(const TaskDescriptor& task_descriptor);
+  void RemoveDummyPg(JobID_t job_id);
 
 
   // Pointer to the coordinator's topology manager
@@ -185,6 +188,7 @@ class FlowScheduler : public EventDrivenScheduler {
   // Single task that needs to scheduled in queue based scheduling round.
   TaskID_t task_to_be_scheduled_;
   unordered_set<TaskID_t> affinity_batch_job_schedule_;
+  Firmament_Scheduler_Service_Utils* fmt_sched_service_utils_;
 };
 
 }  // namespace scheduler
