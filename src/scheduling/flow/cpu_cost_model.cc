@@ -587,7 +587,9 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
     //TODO(Pratik): Get pod group name from job descriptor and use it here.
     list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
                                                 *pg_name);
-    if (pg_ec_list) {
+    if (pg_ec_list &&
+        find(pg_ec_list->begin(), pg_ec_list->end(), PG_ec) ==
+            pg_ec_list->end()) {
       uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
       if (curr_cost) {
         list<EquivClass_t>::iterator it = pg_ec_list->begin();
