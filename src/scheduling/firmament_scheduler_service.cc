@@ -443,6 +443,13 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       // insert the element with pod group name and resource allocated by it.
       unordered_map<string, Resource_Allocated>* pgToResourceAllocted =
           firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+      //***TBD debugging remove it start
+      cout<<"size of pg to res allocated map = "<<pgToResourceAllocted->size()<<endl;
+      for(auto it = pgToResourceAllocted->begin(); it != pgToResourceAllocted->end();
+          ++it) {
+        cout<<" \n:: TaskCompleted pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
+      }
+     //***TBD end
       Resource_Allocated* allocted_resource =
           FindOrNull(*pgToResourceAllocted, *pod_group_name);
       float cpu_cores = td_ptr->resource_request().cpu_cores();
@@ -450,10 +457,7 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       uInt64_t ephemeral_storage = td_ptr->resource_request().ephemeral_storage();
 
       if (allocted_resource != NULL) {
-        allocted_resource->cpu_resource -= cpu_cores;
-        allocted_resource->memory_resource -= ram_cap;
-        allocted_resource->ephemeral_resource -= ephemeral_storage;
-
+        allocted_resource->DeductResources(cpu_cores, ram_cap, ephemeral_storage);
       } else {// do nothing
       }
       // Queue proportion need to be updated
@@ -496,7 +500,8 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         // remove the item from job_id to pod group map
         unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group =
             firmament_scheduler_serivice_utils_->GetJobIdToPodGroupMap();
-        job_id_to_pod_group->erase(job_id);
+        //job_id_to_pod_group->erase(job_id);
+        //**** TBD need to do somthing here for sure
       }
     }
     reply->set_type(TaskReplyType::TASK_COMPLETED_OK);
@@ -552,6 +557,16 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
         // insert the element with pod group name and resource allocated by it.
         unordered_map<string, Resource_Allocated>* pgToResourceAllocted =
             firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+
+
+         //***TBD debugging remove it start
+         cout<<"::TaskFailed size of pg to res allocated map = "<<pgToResourceAllocted->size()<<endl;
+         for(auto it = pgToResourceAllocted->begin(); it != pgToResourceAllocted->end();
+             ++it) {
+           cout<<" \n:: TaskFailed pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
+         }
+        //***TBD end
+
         Resource_Allocated* allocted_resource =
             FindOrNull(*pgToResourceAllocted, *pod_group_name);
 
@@ -806,6 +821,8 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
             boost::hash<JobID_t>>* job_id_to_pod_group =
             firmament_scheduler_serivice_utils_->GetJobIdToPodGroupMap();
         InsertIfNotPresent(job_id_to_pod_group, job_id, pod_group_name);
+        cout<<"\n\n****** job id ="<<task_desc_ptr->task_descriptor().job_id()
+            <<"pod_group_name ="<< pod_group_name<<"\n\n"<<endl;
         LOG(INFO) << "PodGroup name from Job = "
                   << jd_ptr->pod_group_name() << endl;
       }
@@ -1113,25 +1130,25 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     return Status::OK;
   }
 
-  /**
-   *Add Queue as and when it is created and update
-   *deserved proportion
-   **/
-  Status QueueAdded(ServerContext* context,
-                    const QueueDescriptor* queue_desc_ptr,
-                    QueueAddedResponse* reply) override {
-    boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
+/**
+ *Add Queue as and when it is created and update
+ *deserved proportion
+ **/
+Status QueueAdded(ServerContext* context,
+                  const QueueDescriptor* queue_desc_ptr,
+                  QueueAddedResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
 
-    if (queue_desc_ptr != NULL) {
-      string queue_name(queue_desc_ptr->name());
-      cout<<"queue_name"<<queue_name<<endl;
-      if(queue_name != string("")) {
-      bool exist = InsertIfNotPresent(queue_map_.get(), queue_name,
-                                      *queue_desc_ptr);
-      if (!exist) {
-        LOG(INFO) << "Queue :   "<<queue_name<<"already added"<<endl ;
-        reply->set_type(QUEUE_ALREADY_ADDED);
-      } else {
+  if (queue_desc_ptr != NULL) {
+    string queue_name(queue_desc_ptr->name());
+    cout<<"queue_name "<<queue_name<<endl;
+    if(queue_name != string("")) {
+    bool exist = InsertIfNotPresent(queue_map_.get(), queue_name,
+                                    *queue_desc_ptr);
+    if (!exist) {
+      LOG(INFO) << "Queue :   "<<queue_name<<"already added"<<endl ;
+      reply->set_type(QUEUE_ALREADY_ADDED);
+    } else {
         // insert the queue name into the map with dummy weight '0'
         InsertIfNotPresent(&queue_map_ratio_, queue_name, 0);
         // calculate ratio based on the number of Queue present
@@ -1158,177 +1175,170 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
     LOG(INFO) << " Queue descriptor NULL :   "<<endl ;
     reply->set_type(QUEUE_FAILED_OK);
   }
-
-    return Status::OK;
-  }
+  return Status::OK;
+}
 
   /**
    *Remove Queue
    **/
-  Status QueueRemoved(ServerContext* context,
-                      const QueueDescriptor* queue_desc_ptr,
-                      QueueRemoveResponse* reply) override {
-    boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
-    if(queue_desc_ptr != NULL) {
-      string queue_name(queue_desc_ptr->name());
-      if(queue_name != string("")) {
-        if(queue_map_.get()->erase(queue_name)) {
-          queue_map_ratio_.erase(queue_name);
-          unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
-              firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
-          queue_map_proportion_ptr->erase(queue_name);
-          LOG(INFO) << " Queue removed = " <<queue_name<< endl;
-          reply->set_type(QUEUE_REMOVED_OK);
-        } else {
-          LOG(INFO) << " Queue not present =" <<endl;
-          reply->set_type(QUEUE_NOT_FOUND);
-        }
-      }else {
-        LOG(INFO) << " Queue name is empty " <<endl;
-        reply->set_type(QUEUE_INVALID_OK);
+Status QueueRemoved(ServerContext* context,
+                    const QueueDescriptor* queue_desc_ptr,
+                    QueueRemoveResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
+  if(queue_desc_ptr != NULL) {
+    string queue_name(queue_desc_ptr->name());
+    if(queue_name != string("")) {
+      if(queue_map_.get()->erase(queue_name)) {
+        queue_map_ratio_.erase(queue_name);
+        unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
+            firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
+        queue_map_proportion_ptr->erase(queue_name);
+        LOG(INFO) << " Queue removed = " <<queue_name<< endl;
+        reply->set_type(QUEUE_REMOVED_OK);
+      } else {
+        LOG(INFO) << " Queue not present =" <<endl;
+        reply->set_type(QUEUE_NOT_FOUND);
       }
-    } else {
-      LOG(INFO) << " QueueDescriptor is NULL " <<endl;
+    }else {
+      LOG(INFO) << " Queue name is empty " <<endl;
       reply->set_type(QUEUE_INVALID_OK);
     }
-    return Status::OK;
+  } else {
+    LOG(INFO) << " QueueDescriptor is NULL " <<endl;
+    reply->set_type(QUEUE_INVALID_OK);
   }
+  return Status::OK;
+}
 
 /**
  *Update Queue
  **/
-  Status QueueUpdated(ServerContext* context,
-                      const QueueDescriptor* queue_desc_ptr,
-                      QueueUpdateResponse* reply) override {
-    boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
-    if(queue_desc_ptr) {
-      string queue_name(queue_desc_ptr->name());
-      if(queue_name != string("")) {
-        QueueDescriptor* queue_desc = FindOrNull(*queue_map_.get() , queue_name);
-        if(queue_desc) {
-          queue_desc->set_weight(queue_desc_ptr->weight());
-          CalculatePropotionRatio();
-          UpdateDeservedProportion();
-          LOG(INFO) << "Queue updated = " <<queue_name<< endl;
-          reply->set_type(QUEUE_UPDATED_OK);
-        } else {
-          LOG(INFO) << "Queue not present" << endl;
-          reply->set_type(QUEUE_NOT_FOUND);
-        }
+Status QueueUpdated(ServerContext* context,
+                    const QueueDescriptor* queue_desc_ptr,
+                  QueueUpdateResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
+  if(queue_desc_ptr) {
+    string queue_name(queue_desc_ptr->name());
+    if(queue_name != string("")) {
+      QueueDescriptor* queue_desc = FindOrNull(*queue_map_.get() , queue_name);
+      if(queue_desc) {
+        queue_desc->set_weight(queue_desc_ptr->weight());
+        CalculatePropotionRatio();
+        UpdateDeservedProportion();
+        LOG(INFO) << "Queue updated = " <<queue_name<< endl;
+        reply->set_type(QUEUE_UPDATED_OK);
       } else {
-        LOG(INFO) << "Queue name is empty" << endl;
-        reply->set_type(QUEUE_INVALID_OK);
+        LOG(INFO) << "Queue not present" << endl;
+        reply->set_type(QUEUE_NOT_FOUND);
       }
     } else {
-      LOG(INFO) << "QueueDescriptor is NULL " << endl;
-      reply->set_type(QUEUE_FAILED_OK);
+      LOG(INFO) << "Queue name is empty" << endl;
+      reply->set_type(QUEUE_INVALID_OK);
     }
-    return Status::OK;
+  } else {
+    LOG(INFO) << "QueueDescriptor is NULL " << endl;
+    reply->set_type(QUEUE_FAILED_OK);
   }
+  return Status::OK;
+}
 
-  /**
-   *Calculate the new ratio for all queue/s in the system
-   **/
-  void CalculatePropotionRatio() {
-    int32_t aggWeight = 0;
-
-    for (thread_safe::map<string, QueueDescriptor>::iterator it =
-         queue_map_.get()->begin(); it != queue_map_.get()->end(); ++it) {
-      aggWeight += it->second.weight();
-    }
-    LOG(INFO)<<"total weight of all queue ="<< aggWeight<<endl;
-
-    for (thread_safe::map<string, QueueDescriptor>::iterator it =
-         queue_map_.get()->begin(); it != queue_map_.get()->end(); ++it) {
-
-      //auto it1 = queue_map_ratio_.begin();
-      double* proportion = FindOrNull(queue_map_ratio_ , it->first);
-      if(proportion) {
-      // can put check for .end() //but its not necessary
+/**
+ *Calculate the new ratio for all queue/s in the system
+ **/
+void CalculatePropotionRatio() {
+  int32_t aggWeight = 0;
+  for (thread_safe::map<string, QueueDescriptor>::iterator it =
+       queue_map_.get()->begin(); it != queue_map_.get()->end(); ++it) {
+    aggWeight += it->second.weight();
+  }
+  for (thread_safe::map<string, QueueDescriptor>::iterator it =
+       queue_map_.get()->begin(); it != queue_map_.get()->end(); ++it) {
+    double* proportion = FindOrNull(queue_map_ratio_ , it->first);
+    if(proportion) {
       *proportion = ((double)it->second.weight() / aggWeight);
       LOG(INFO)<<"proportion ratio of "
                << it->second.name()<<"= "<<*proportion<<endl;
-      } else {
+    } else {
       LOG(INFO)<<"Proportion calculation failed"<<endl;
       }
     }
   }
 
-  /**
-   *
-   */
-  void UpdateDeservedProportion() {
-    unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
-        firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
+/**
+ *
+ */
+void UpdateDeservedProportion() {
+  unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
+      firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
 
-    for (unordered_map<string, double>::iterator it = queue_map_ratio_.begin();
-         it != queue_map_ratio_.end(); ++it) {
-
-      LOG(INFO)<<"Qname ="<<it->first<<endl;
-      Queue_Proportion* itProportion = FindOrNull(*queue_map_proportion_ptr,
-                                                  it->first);
-      if(itProportion) {
-        ResourceStatsAggregate resAgg = knowledge_base_->GetResourceStatsAgg();
-        //*** TBD simplify this
-        itProportion->SetDeservedResource(
-            resAgg.resource_allocatable.cpu_resource * it->second,
-            resAgg.resource_allocatable.memory_resource * it->second,
-            resAgg.resource_allocatable.ephemeral_resource * it->second);
-      } else {
-      cout<<"itProportion == NULL"<<endl;
-      }
+  for (unordered_map<string, double>::iterator it = queue_map_ratio_.begin();
+       it != queue_map_ratio_.end(); ++it) {
+    LOG(INFO)<<"Qname ="<<it->first<<endl;
+    Queue_Proportion* itProportion = FindOrNull(*queue_map_proportion_ptr,
+                                                it->first);
+    if(itProportion) {
+      ResourceStatsAggregate resAgg = knowledge_base_->GetResourceStatsAgg();
+      //*** TBD simplify this
+      itProportion->SetDeservedResource(
+          resAgg.resource_allocatable.cpu_resource * it->second,
+          resAgg.resource_allocatable.memory_resource * it->second,
+          resAgg.resource_allocatable.ephemeral_resource * it->second);
+    } else {
+    cout<<"itProportion == NULL"<<endl;
     }
   }
+}
 
- /**
-  *Add Podgroup
-  */
-  Status PodGroupAdded(ServerContext* context,
-                       const PodGroupDescriptor* pod_group_desc_ptr,
-                       PodGroupAddedResponse* reply) override {
+/**
+*Add Podgroup
+*/
+Status PodGroupAdded(ServerContext* context,
+                     const PodGroupDescriptor* pod_group_desc_ptr,
+                     PodGroupAddedResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(
+      scheduler_->scheduling_lock_);
+  if(pod_group_desc_ptr){
+    auto pod_group_map_ptr =
+        firmament_scheduler_serivice_utils_->GetPodGroupMap();
+    bool exist = InsertIfNotPresent(pod_group_map_ptr,
+                                    pod_group_desc_ptr->name(),
+                                    *pod_group_desc_ptr);
+    if(!exist) {
+      reply->set_type(PODGROUP_ALREADY_ADDED);
+      LOG(INFO)<<"pg already added "<<endl;
+    } else {
+      unordered_map<string, string>* pod_group_to_queue_map_ptr =
+      firmament_scheduler_serivice_utils_->GetPodGroupToQueue();
+      string queue_name(pod_group_desc_ptr->queuename());
+      LOG(INFO)<<"PodGroup Added name = "<<pod_group_desc_ptr->name()
+          <<"Queue name in Pg ="<< queue_name<<endl;
+      if(queue_name == string("")) {
+        queue_name = string(DEFAULT_QUEUE_NAME);
+      }
+      
+      InsertIfNotPresent(pod_group_to_queue_map_ptr,
+      pod_group_desc_ptr->name(),queue_name);
 
-    boost::lock_guard<boost::recursive_mutex> lock(
-    scheduler_->scheduling_lock_);
-    if(pod_group_desc_ptr){
-      auto pod_group_map_ptr =
-          firmament_scheduler_serivice_utils_->GetPodGroupMap();
-      bool exist = InsertIfNotPresent(pod_group_map_ptr,
-                                      pod_group_desc_ptr->name(),
-                                      *pod_group_desc_ptr);
-      if(!exist) {
-        reply->set_type(PODGROUP_ALREADY_ADDED);
-        LOG(INFO)<<"pg already added "<<endl;
-      } else {
-        unordered_map<string, string>* pod_group_to_queue_map_ptr =
-        firmament_scheduler_serivice_utils_->GetPodGroupToQueue();
-        string queue_name(pod_group_desc_ptr->queuename());
-        LOG(INFO)<<"PodGroup Added name = "<<pod_group_desc_ptr->name()
-            <<"Queue name in Pg ="<< queue_name<<endl;
-        if(queue_name == string("")) {
-          queue_name = string(DEFAULT_QUEUE_NAME);
-        }
-        InsertIfNotPresent(pod_group_to_queue_map_ptr,
-        pod_group_desc_ptr->name(),queue_name);
-
-        //insert the element with pod group name and resource allocated by it.
-        unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
-        firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
-        Resource_Allocated resAllocated ;
-        InsertIfNotPresent(pgToResourceAllocted, pod_group_desc_ptr->name(),
-                           resAllocated);
-        //LOG(INFO)<<"PodGroup Added name = "<<pod_group_desc_ptr->name()
-        //    <<"Queue name in Pg ="<< pod_group_desc_ptr->queuename()<<endl;
-        reply->set_type(PODGROUP_ADDED_OK);
+      //insert the element with pod group name and resource allocated by it.
+      unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+      firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+      
+      Resource_Allocated resAllocated ;
+      InsertIfNotPresent(pgToResourceAllocted, pod_group_desc_ptr->name(),
+                         resAllocated);
+      //LOG(INFO)<<"PodGroup Added name = "<<pod_group_desc_ptr->name()
+      //    <<"Queue name in Pg ="<< pod_group_desc_ptr->queuename()<<endl;
+      reply->set_type(PODGROUP_ADDED_OK);
     }
   } else {
     reply->set_type(PODGROUP_INVALID_OK);
   }
   return Status::OK;
-  }
+}
 
- /**
-  *Podgroup Removed
-  */
+/**
+*Podgroup Removed
+*/
 Status PodGroupRemoved(ServerContext* context,
                        const PodGroupDescriptor* pod_group_desc_ptr,
                        PodGroupRemoveResponse* reply) override {
@@ -1349,6 +1359,15 @@ Status PodGroupRemoved(ServerContext* context,
       pod_group_to_queue_map_ptr->erase(pod_group_name);
       auto pg_to_resource_allocated_map_ptr =
           firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+
+       //***TBD debugging remove it start
+       cout<<"::PodGroupRemoved size of pg to res allocated map = "<<pg_to_resource_allocated_map_ptr->size()<<endl;
+       for(auto it = pg_to_resource_allocated_map_ptr->begin(); it != pg_to_resource_allocated_map_ptr->end();
+           ++it) {
+         cout<<" \n:: PodGroupRemoved pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
+       }
+      //***TBD end
+
       pg_to_resource_allocated_map_ptr->erase(pod_group_name);
       auto job_id_to_pod_group_map_ptr =
             firmament_scheduler_serivice_utils_->GetJobIdToPodGroupMap();
@@ -1378,21 +1397,21 @@ Status PodGroupRemoved(ServerContext* context,
 /**
  *PodGroup Updated
  */
-  Status PodGroupUpdated(ServerContext* context,
-                         const PodGroupDescriptor* queue_desc_ptr,
-                         PodGroupUpdateResponse* reply) override {
-
-    boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
-    LOG(INFO) << "Why should we update pod group ???" << endl;
-    reply->set_type(PODGROUP_UPDATED_OK);
-    return Status::OK;
-  }
+Status PodGroupUpdated(ServerContext* context,
+                       const PodGroupDescriptor* queue_desc_ptr,
+                       PodGroupUpdateResponse* reply) override {
+  boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
+  LOG(INFO) << "Why should we update pod group ???" << endl;
+  reply->set_type(PODGROUP_UPDATED_OK);
+  return Status::OK;
+}
 
  /**
-  *Job desc dose not have a podgroup name in which
+  *Job desc dose not have a podgroup name in such cases
+  *we add such job to default queue and add min number as 1
+  *pod group name as uid of the job.
   */
-  void PodGroupAdded(string pod_group_name) {
-
+void PodGroupAdded(string pod_group_name) {
   PodGroupDescriptor pod_group_descriptor;
   pod_group_descriptor.set_name(pod_group_name);
   pod_group_descriptor.set_queuename(DEFAULT_QUEUE_NAME);
@@ -1404,7 +1423,20 @@ Status PodGroupRemoved(ServerContext* context,
   InsertIfNotPresent(pod_group_map_ptr, pod_group_name, pod_group_descriptor);
   InsertIfNotPresent(pod_group_to_queue_map_ptr, pod_group_name,
                      DEFAULT_QUEUE_NAME);
-  }
+  unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
+  firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
+  
+   //***TBD debugging remove it start
+   cout<<"::PodGroupAdded size of pg to res allocated map = "<<pgToResourceAllocted->size()<<endl;
+   for(auto it = pgToResourceAllocted->begin(); it != pgToResourceAllocted->end();
+       ++it) {
+     cout<<" \n:: PodGroupAdded pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
+   }
+  //***TBD end
+  Resource_Allocated resAllocated ;
+  InsertIfNotPresent(pgToResourceAllocted, pod_group_name,
+                     resAllocated);
+}
 
 
  private:

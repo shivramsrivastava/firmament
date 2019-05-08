@@ -41,8 +41,6 @@ DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
 
-#define INVALID_ARCH_COST 10000
-
 CpuCostModel::CpuCostModel(
     shared_ptr<ResourceMap_t> resource_map, shared_ptr<TaskMap_t> task_map,
     shared_ptr<KnowledgeBase> knowledge_base,
@@ -254,7 +252,12 @@ ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
   unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group=
   firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
   string* pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
+  if(pod_group_name) {
+    cout <<"***PGEquivClassToEquivClass :: pod_group_name"<<*pod_group_name<<endl;
+    } else {
+    cout <<"***PGEquivClassToEquivClass :: pod_group_name =  NULL"<<endl;
 
+    }
   return ArcDescriptor(GetPodGroupDRFArchCost(pod_group_name), 0, 0ULL);
 }
 
@@ -1989,27 +1992,24 @@ ResourceID_t CpuCostModel::MachineResIDForResource(ResourceID_t res_id) {
  *Cost of the arch(arch between pod group and TE) based on DRF
  */
 ArcCost_t CpuCostModel::GetPodGroupDRFArchCost(const string* pod_group_name) {
-  ArcCost_t arch_cost = INVALID_ARCH_COST;
-
+  ArcCost_t arch_cost = omega_;
   if (pod_group_name != NULL) {
     Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
         Firmament_Scheduler_Service_Utils::Instance();
     unordered_map<string, ArcCost_t>* pod_grp_to_arch_cost =
         fmt_scheduler_service_utils_ptr->GetPodGroupToArcCost();
-
     // assign invalid arch cost on error, valid arch cost can be 0 to 1000 only
-
     if (pod_grp_to_arch_cost != NULL) {
       ArcCost_t* arch_cost_ptr =
           FindOrNull(*pod_grp_to_arch_cost, *pod_group_name);
-
       if (arch_cost_ptr != NULL) {
+        LOG(INFO) << "arch_cost = " << *arch_cost_ptr << endl;
         arch_cost = *arch_cost_ptr;
-      } else { /*arch_cost = INVALID_ARCH_COST; *** TBD do we need to do
-                  somthing like assert?	*/
+      } else {
+        LOG(INFO) << " arch_cost_ptr == NULL" << endl;
       }
-    } else { /*arch_cost = INVALID_ARCH_COST; *** TBD invalid arch cost ...TBD
-                do we need to assert?*/
+    } else {
+      LOG(INFO) << "pod_grp_to_arch_cost == NULL" << endl;
     }
   }
   return arch_cost;
@@ -2020,111 +2020,93 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
   Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
       Firmament_Scheduler_Service_Utils::Instance();
 
-  unordered_map<string, list<string>>* queue_to_ordered_pg_list_map =
+  unordered_map<string, list<string>>* q_to_ordered_pg_list_map =
       fmt_scheduler_service_utils_ptr->GetQtoOrderedPgListMap();
-  cout << "*** CalculateMaxFlowForPgEcToTaskEc" << endl;
   // go through all the Queues in the map
-  for (auto iter = queue_to_ordered_pg_list_map->begin();
-       iter != queue_to_ordered_pg_list_map->end(); ++iter) {
+  for (auto iter = q_to_ordered_pg_list_map->begin();
+       iter != q_to_ordered_pg_list_map->end(); ++iter) {
     float cpu_cores_requst = 0;
     uInt64_t memory_resource_request = 0;
     uInt64_t ephimeral_resource_request = 0;
-
     // go through all the Pod group
     auto pg_list = iter->second;
     for (auto pgIter = pg_list.begin(); pgIter != pg_list.end(); pgIter++) {
       // get the pod group name
       string pod_group_name(*pgIter);
-      cout << "***pod_group_name" << pod_group_name << endl;
-
       // list all PGEcs
       list<EquivClass_t>* pg_ecs =
           FindOrNull(pg_name_to_pg_ec_inorder_, pod_group_name);
-      cout << "*** before pg_ecs != NULL" << endl;
       if (pg_ecs != NULL) {
-        cout << "*** after pg_ecs != NULL" << endl;
-
         uint64_t maxFlow = 0;
         for (auto pgEcIter = pg_ecs->begin(); pgEcIter != pg_ecs->end();
              ++pgEcIter) {
           // get job ec
           EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *pgEcIter);
-          cout << "*** before job_ec != NULL" << endl;
+          /// cout<<"*** before job_ec != NULL"<<endl;
           if (job_ec != NULL) {
             // get all the task under the job and calculate all the requested
             // resources
-            cout << "*** after job_ec != NULL" << endl;
-
             unordered_set<TaskID_t>* task_set =
                 FindOrNull(job_ec_to_tasks_, *job_ec);
-            int32_t numOfTaskInJob = task_set->size();
-            auto it = (task_set->begin());
-            CpuMemResVector_t* resource_vector =
-                FindOrNull(task_resource_requirement_, *it);
-            cout << "***numOfTaskInJob = " << numOfTaskInJob << endl;
-            cout << "***cpu_cores_ = " << resource_vector->cpu_cores_ << endl;
-
-            cpu_cores_requst += numOfTaskInJob * resource_vector->cpu_cores_;
-
-            // ResourceStatsAggregate* resource_Agg_ptr =
-            //  knowledge_base_->GetResourceStatsAgg();
-            auto* queue_map_proportion_ptr =
-                fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
-
-            Queue_Proportion* queue_proportion_ptr =
-                FindOrNull(*queue_map_proportion_ptr, iter->first);
-            cout << "***cpu_cost queue name  = " << iter->first << endl;
-
-            float deserved_cpu_for_q =
-                queue_proportion_ptr->GetDeservedResource().GetCpuResource();
-
-            cout << "***deserved_cpu_for_q = " << deserved_cpu_for_q << endl;
-            cout << "***cpu_cores_requst = " << cpu_cores_requst << endl;
-
-            if ((deserved_cpu_for_q - cpu_cores_requst) < 0) {
-              numOfTaskInJob = numOfTaskInJob -
-                               ceil((cpu_cores_requst - deserved_cpu_for_q) /
-                                    numOfTaskInJob);
+            if (task_set) {
+              int32_t numOfTaskInJob = task_set->size();
+              if (numOfTaskInJob > 0) {
+                auto it = (task_set->begin());
+                CpuMemResVector_t* resource_vector =
+                    FindOrNull(task_resource_requirement_, *it);
+                cpu_cores_requst +=
+                    numOfTaskInJob * resource_vector->cpu_cores_;
+                // ResourceStatsAggregate* resource_Agg_ptr =
+                //  knowledge_base_->GetResourceStatsAgg();
+                auto* queue_map_proportion_ptr =
+                    fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
+                Queue_Proportion* q_proportion_ptr =
+                    FindOrNull(*queue_map_proportion_ptr, iter->first);
+                float deserved_cpu_for_q =
+                    q_proportion_ptr->GetDeservedResource()
+                        .GetCpuResource();  // this can be moved up
+                if ((deserved_cpu_for_q - cpu_cores_requst) < 0) {
+                  numOfTaskInJob =
+                      numOfTaskInJob -
+                      ceil((cpu_cores_requst - deserved_cpu_for_q) /
+                           resource_vector->cpu_cores_);
+                }
+                uInt64_t deserved_mem_for_q =
+                    q_proportion_ptr->GetDeservedResource().GetMemoryResource();
+                memory_resource_request +=
+                    numOfTaskInJob * resource_vector->ram_cap_;
+                if ((deserved_mem_for_q - memory_resource_request) < 0) {
+                  numOfTaskInJob =
+                      numOfTaskInJob -
+                      ceil((memory_resource_request - deserved_mem_for_q) /
+                           resource_vector->ram_cap_);
+                }
+                ephimeral_resource_request +=
+                    numOfTaskInJob * resource_vector->ephemeral_storage_;
+                uInt64_t deserved_ephimeral_for_q =
+                    q_proportion_ptr->GetDeservedResource()
+                        .GetEphimeralResource();
+                if ((deserved_ephimeral_for_q - ephimeral_resource_request) <
+                    0) {
+                  numOfTaskInJob = numOfTaskInJob -
+                                   ceil((ephimeral_resource_request -
+                                         deserved_ephimeral_for_q) /
+                                        resource_vector->ephemeral_storage_);
+                }
+                if (numOfTaskInJob < 1) {
+                  numOfTaskInJob = 0;
+                  break;
+                }
+                InsertIfNotPresent(pgec_to_max_flow_map, *pgEcIter,
+                                   numOfTaskInJob);
+              }
+            } else {
+              continue;  // TBD****
             }
-            cout << "***numOfTaskInJob after cpu  = " << numOfTaskInJob << endl;
-            uInt64_t deserved_mem_for_q =
-                queue_proportion_ptr->GetDeservedResource().GetMemoryResource();
-            memory_resource_request +=
-                numOfTaskInJob * resource_vector->ram_cap_;
-            if ((deserved_mem_for_q - memory_resource_request) < 0) {
-              numOfTaskInJob =
-                  numOfTaskInJob -
-                  ceil((memory_resource_request - deserved_mem_for_q) /
-                       numOfTaskInJob);
-            }
-            cout << "***numOfTaskInJob after mem  = " << numOfTaskInJob << endl;
-
-            ephimeral_resource_request +=
-                numOfTaskInJob * resource_vector->ephemeral_storage_;
-
-            uInt64_t deserved_ephimeral_for_q =
-                queue_proportion_ptr->GetDeservedResource()
-                    .GetEphimeralResource();
-
-            if ((deserved_ephimeral_for_q - ephimeral_resource_request) < 0) {
-              numOfTaskInJob =
-                  numOfTaskInJob -
-                  ceil((ephimeral_resource_request - deserved_ephimeral_for_q) /
-                       numOfTaskInJob);
-            }
-            cout << "***numOfTaskInJob after ephimeral  = " << numOfTaskInJob
-                 << endl;
-
-            if (numOfTaskInJob < 1) {
-              numOfTaskInJob = 0;
-              break;
-            }
-            InsertIfNotPresent(pgec_to_max_flow_map, *pgEcIter, numOfTaskInJob);
           }
         }
       }
     }
   }
 }
-
 }  // namespace firmament

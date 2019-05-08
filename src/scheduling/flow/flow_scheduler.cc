@@ -391,6 +391,7 @@ void FlowScheduler::HandleJobRemoval(JobID_t job_id) {
   }
   if(FLAGS_proportion_drf_based_scheduling) {
     RemoveDummyPg(job_id);
+   //*** TBD what about removing job_id_to_pg map???
   }
   // Call into superclass handler
   EventDrivenScheduler::HandleJobRemoval(job_id);
@@ -723,7 +724,26 @@ uint64_t FlowScheduler::ScheduleAllJobs(SchedulerStats* scheduler_stats,
   for (auto& job_id_jd : jobs_to_schedule_) {
        const TaskDescriptor& td = job_id_jd.second->root_task();
     if(FLAGS_proportion_drf_based_scheduling) {
-      //Gang scheduling
+      //podgroup associated to the queue but queue is not present
+      //this tasks should not be processed for scheduling
+      auto job_id_to_pod_group_map_ptr =
+              fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+      if(job_id_to_pod_group_map_ptr) {
+      string* pod_group_name_ptr =
+          FindOrNull(*job_id_to_pod_group_map_ptr,
+                     JobIDFromString(td.job_id()));
+        if (pod_group_name_ptr) {
+          auto pod_group_to_queue_ptr
+              = fmt_sched_service_utils_->GetPodGroupToQueue();
+          if(pod_group_to_queue_ptr) {
+            string* queue_name =
+                FindOrNull(*pod_group_to_queue_ptr, *pod_group_name_ptr);
+            if(queue_name == NULL || (*queue_name == string(""))) {
+              continue;
+              }//else do nothing
+          }//else do nothing
+        }//else do nothing
+      }//else do nothing
       CalculatePodGroupArcCostDRF(td);
     }
 
@@ -1191,188 +1211,201 @@ void FlowScheduler::UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {
 }
 
 void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
-  unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group_map_ptr =
-      fmt_sched_service_utils_->GetJobIdToPodGroupMap();
-  string* pod_group_name_ptr =  FindOrNull(*job_id_to_pod_group_map_ptr,
-    JobIDFromString(td.job_id()));
-  if(pod_group_name_ptr != NULL) {
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      job_id_to_pod_group_map_ptr =
+          fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+  string* pod_group_name_ptr =
+      FindOrNull(*job_id_to_pod_group_map_ptr, JobIDFromString(td.job_id()));
+  if (pod_group_name_ptr != NULL) {
     unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
-      fmt_sched_service_utils_->GetPGToResourceAllocated();
+        fmt_sched_service_utils_->GetPGToResourceAllocated();
     Resource_Allocated* allocated_resource_ptr =
-      FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+        FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
 
-    if(allocated_resource_ptr != NULL) {
+    if (allocated_resource_ptr != NULL) {
       ResourceStatsAggregate resource_aggregate =
-        knowledge_base_->GetResourceStatsAgg();
+          knowledge_base_->GetResourceStatsAgg();
 
-      cout<<"cpu aggregate ="
-          <<resource_aggregate.resource_allocatable.cpu_resource<<endl;
-      cout<<"cpu allocated ="<<allocated_resource_ptr->cpu_resource<<endl;
+      cout << "cpu aggregate ="
+           << resource_aggregate.resource_allocatable.cpu_resource << endl;
+      cout << "cpu allocated =" << allocated_resource_ptr->cpu_resource << endl;
 
       /*TBD here we should put a list to iterate through the resources*/
-      float cpu_resource_ratio = ResourceRatio(
-      resource_aggregate.resource_allocatable.cpu_resource,
-      allocated_resource_ptr->cpu_resource);
+      float cpu_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.cpu_resource,
+                        allocated_resource_ptr->cpu_resource);
 
-      float memory_resource_ratio = ResourceRatio(
-      resource_aggregate.resource_allocatable.memory_resource,
-      allocated_resource_ptr->memory_resource);
+      float memory_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.memory_resource,
+                        allocated_resource_ptr->memory_resource);
 
-      float ephemeral_resource_ratio = ResourceRatio(
-      resource_aggregate.resource_allocatable.cpu_resource,
-      allocated_resource_ptr->cpu_resource);
+      float ephemeral_resource_ratio =
+          ResourceRatio(resource_aggregate.resource_allocatable.cpu_resource,
+                        allocated_resource_ptr->cpu_resource);
 
       float ratio = 0;
 
-      if(memory_resource_ratio >= cpu_resource_ratio) {
-
+      if (memory_resource_ratio >= cpu_resource_ratio) {
         ratio = memory_resource_ratio;
 
-      } else if(cpu_resource_ratio >= ephemeral_resource_ratio) {
+      } else if (cpu_resource_ratio >= ephemeral_resource_ratio) {
+        ratio = cpu_resource_ratio;
 
-      ratio = cpu_resource_ratio;
-
-      }
-      else {
+      } else {
         ratio = ephemeral_resource_ratio;
       }
-      //converting ratio into cost by * with 1000
-      //so this value would be between 0 to 1000
-      ratio *= 1000;
-      LOG(INFO)<<"***COST  = "<<ratio<<endl;
+      // converting ratio into cost by * with 1000
+      // so this value would be between 0 to 1000
+      ratio *= MAX_ARCH_COST_FOR_DRF;
+      LOG(INFO) << "COST  = " << ratio << endl;
       ArcCost_t arc_cost_for_pg = (ArcCost_t)ratio;
-
       unordered_map<string, ArcCost_t>* pod_grp_to_arc_cost =
-      fmt_sched_service_utils_->GetPodGroupToArcCost();
-      InsertIfNotPresent(pod_grp_to_arc_cost,*pod_group_name_ptr,
-                                             arc_cost_for_pg);
+          fmt_sched_service_utils_->GetPodGroupToArcCost();
 
-      //update the Qname to cost and pg multi map
+      ArcCost_t* arch_cost_ptr =
+          FindOrNull(*pod_grp_to_arc_cost, *pod_group_name_ptr);
+      if (!arch_cost_ptr) {
+        InsertIfNotPresent(pod_grp_to_arc_cost, *pod_group_name_ptr,
+                           arc_cost_for_pg);
+      } else {
+        *arch_cost_ptr = arc_cost_for_pg;
+      }
+      // update the Qname to cost and pg multi map
       unordered_map<string, string>* pod_group_to_queue_map_ptr =
-        fmt_sched_service_utils_->GetPodGroupToQueue();
+          fmt_sched_service_utils_->GetPodGroupToQueue();
 
-      string *queue_name =
-        FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
+      string* queue_name =
+          FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
 
-      unordered_map <string, list<string>>* queue_to_ordered_pg_list_ptr =
-        fmt_sched_service_utils_->GetQtoOrderedPgListMap();
+      unordered_map<string, list<string>>* queue_to_ordered_pg_list_ptr =
+          fmt_sched_service_utils_->GetQtoOrderedPgListMap();
 
-      //add the pod group into the list base on cost, lower cost in the begining
+      // add the pod group into the list base on cost, lower cost in the
+      // begining
       list<string>* ordered_pg_list_ptr =
-        FindOrNull(*queue_to_ordered_pg_list_ptr, *queue_name);
-      if(ordered_pg_list_ptr != NULL) {
+          FindOrNull(*queue_to_ordered_pg_list_ptr, *queue_name);
+      if (ordered_pg_list_ptr != NULL) {
         bool inserted = false;
-        for(auto it = ordered_pg_list_ptr->begin();
-                                 it != ordered_pg_list_ptr->end(); ++it) {
-        ArcCost_t* arc_cost = FindOrNull(*pod_grp_to_arc_cost, *it);
-          if(*arc_cost > arc_cost_for_pg) {
-            ordered_pg_list_ptr->insert(it, *pod_group_name_ptr);
-            inserted = true;
-            break;
+        ordered_pg_list_ptr->remove(*pod_group_name_ptr);
+        for (auto it = ordered_pg_list_ptr->begin();
+             it != ordered_pg_list_ptr->end(); ++it) {
+          ArcCost_t* arc_cost = FindOrNull(*pod_grp_to_arc_cost, *it);
+          if (arc_cost) {
+            if (*arc_cost > arc_cost_for_pg) {
+              LOG(INFO) << "*** pod group name " << *pod_group_name_ptr
+                        << "old arch cost = " << *arc_cost
+                        << "new arc cost = " << arc_cost_for_pg << endl;
+              ordered_pg_list_ptr->insert(it, *pod_group_name_ptr);
+              inserted = true;
+              break;
+            }
           }
         }
-        if(!inserted) {
+        if (!inserted) {
           ordered_pg_list_ptr->push_back(*pod_group_name_ptr);
         }
-     } else {
-     //no info present so create and it to the list
-     list<string> pod_group_name_list;
-     pod_group_name_list.push_back(*pod_group_name_ptr);
-     InsertIfNotPresent(queue_to_ordered_pg_list_ptr,
-                                         *queue_name, pod_group_name_list);
-     }
-      }else {/*handle this case*/}
-    } else {/*need to handle this case*/}
-
+      } else {
+        // no info present so create and it to the list
+        list<string> pod_group_name_list;
+        pod_group_name_list.push_back(*pod_group_name_ptr);
+        InsertIfNotPresent(queue_to_ordered_pg_list_ptr, *queue_name,
+                           pod_group_name_list);
+      }
+    } else { /*handle this case*/
+    }
+  } else { /*need to handle this case*/
+  }
 }
 
 template <typename T>
-  float FlowScheduler::ResourceRatio(T aggregate, T allocated) {
-  float temp_ratio = 0 ;
-  if(aggregate == 0) {
-    if(allocated == 0) {
+float FlowScheduler::ResourceRatio(T aggregate, T allocated) {
+  float temp_ratio = 0;
+  if (aggregate == 0) {
+    if (allocated == 0) {
       temp_ratio = 0;
     } else {
       temp_ratio = 1;
     }
-  }
-  else {
+  } else {
     temp_ratio = ((float)allocated / aggregate);
   }
-  cout<<"*** cost ratio = "<<temp_ratio<<endl;
   return temp_ratio;
-  }
+}
 
 /**
  *Method to update the Pod group and Queue allocated resources
  */
 void FlowScheduler::HandleAllocatedResourceForPgAndQ(
-  const TaskDescriptor& task_descriptor) {
-
+    const TaskDescriptor& task_descriptor) {
   // 2 steps 1. update the pod group allocated 2. update the Q allocated
-  //step 	1. update the pod group
-  unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group_ptr
-    = fmt_sched_service_utils_->GetJobIdToPodGroupMap();
-  string* pod_group_name_ptr = FindOrNull(*job_id_to_pod_group_ptr,
-    JobIDFromString(task_descriptor.job_id()));
+  // step       1. update the pod group
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      job_id_to_pod_group_ptr =
+          fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+  string* pod_group_name_ptr = FindOrNull(
+      *job_id_to_pod_group_ptr, JobIDFromString(task_descriptor.job_id()));
+  float cpu_cores = task_descriptor.resource_request().cpu_cores();
+  uInt64_t ram_cap = task_descriptor.resource_request().ram_cap();
+  uInt64_t ephemeral_storage =
+      task_descriptor.resource_request().ephemeral_storage();
 
-    float cpu_cores = task_descriptor.resource_request().cpu_cores();
-    uInt64_t ram_cap = task_descriptor.resource_request().ram_cap();
-    uInt64_t ephemeral_storage = task_descriptor.resource_request().ephemeral_storage();
-
-    if(pod_group_name_ptr != NULL) {
+  if (pod_group_name_ptr != NULL) {
     unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
-      fmt_sched_service_utils_->GetPGToResourceAllocated();
+        fmt_sched_service_utils_->GetPGToResourceAllocated();
     Resource_Allocated* resource_allocated_ptr =
-      FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+        FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+    if (resource_allocated_ptr != NULL) {
+      resource_allocated_ptr->AddResources(cpu_cores, ram_cap,
+                                           ephemeral_storage);
+    } else {
+      /*** TBD need to handle */
+      cout << "resource_allocated_ptr != NULL else "
+              "HandleAllocatedResourceForPgAndQ"
+           << endl;
+    }
 
-    if( resource_allocated_ptr != NULL) {
-      resource_allocated_ptr->cpu_resource += cpu_cores;
-      resource_allocated_ptr->cpu_resource += ram_cap;
-      resource_allocated_ptr->cpu_resource += ephemeral_storage;
-    } else {/*** TBD need to handle */}
-
-    //step 2. update the Queue proportion
+    // step 2. update the Queue proportion
 
     unordered_map<string, string>* pod_group_to_queue_map_ptr =
-      fmt_sched_service_utils_->GetPodGroupToQueue();
+        fmt_sched_service_utils_->GetPodGroupToQueue();
 
     unordered_map<string, Queue_Proportion>* queue_map_Proportion_ptr =
-      fmt_sched_service_utils_->GetQueueMapToProportion();
+        fmt_sched_service_utils_->GetQueueMapToProportion();
 
-    string *queue_name =
-      FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
+    string* queue_name =
+        FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
 
-    Queue_Proportion *qProportion = NULL;
-    if(queue_name != NULL) {
+    Queue_Proportion* qProportion = NULL;
+    if (queue_name != NULL) {
       qProportion = FindOrNull(*queue_map_Proportion_ptr, *queue_name);
-    } else {/*No Queue name do we need to put it into default Queue or assert*/}
-
-    if(qProportion != NULL) {
-      //deduct for requested resource and add same to allocated
-      qProportion->DeductRequestedResource(
-        cpu_cores, ram_cap , ephemeral_storage);
-
-      qProportion->AddAllocatedResource(
-        cpu_cores, ram_cap , ephemeral_storage);
-    } else {
-        //do we need to assert?
+    } else { /*No Queue name do we need to put it into default Queue or assert*/
     }
-  }
+
+    if (qProportion != NULL) {
+      // deduct for requested resource and add same to allocated
+      qProportion->DeductRequestedResource(cpu_cores, ram_cap,
+                                           ephemeral_storage);
+
+      qProportion->AddAllocatedResource(cpu_cores, ram_cap, ephemeral_storage);
+    } else {
+      // do we need to assert?
+    }
+  }  // else do nothing
 }
 
 void FlowScheduler::RemoveDummyPg(JobID_t job_id) {
   JobDescriptor* job_desc_ptr = FindOrNull(*job_map_, job_id);
-  if(job_desc_ptr->pod_group_name() == string("")) {
+  if (job_desc_ptr->pod_group_name() == string("")) {
     auto job_id_to_pod_group =
-      fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+        fmt_sched_service_utils_->GetJobIdToPodGroupMap();
     job_id_to_pod_group->erase(job_id);
     auto pod_group_map_ptr = fmt_sched_service_utils_->GetPodGroupMap();
     pod_group_map_ptr->erase(job_desc_ptr->uuid());
     auto pod_group_to_queue_map_ptr =
         fmt_sched_service_utils_->GetPodGroupToQueue();
     pod_group_to_queue_map_ptr->erase(job_desc_ptr->uuid());
-  } else {/* else do nothing */}
+  } else { /* else do nothing */
+  }
 }
 
 }  // namespace scheduler

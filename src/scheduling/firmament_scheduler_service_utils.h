@@ -26,6 +26,7 @@
 #include "scheduling/proportion_queue.h"
 
 namespace firmament {
+#define MAX_ARCH_COST_FOR_DRF 1000
 
 typedef unordered_map<string, std::multimap<uint64_t, string>>
     Qname_To_Cost_PG_Multi_Map;
