@@ -2025,9 +2025,18 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
   // go through all the Queues in the map
   for (auto iter = q_to_ordered_pg_list_map->begin();
        iter != q_to_ordered_pg_list_map->end(); ++iter) {
-    float cpu_cores_requst = 0;
-    uInt64_t memory_resource_request = 0;
-    uInt64_t ephimeral_resource_request = 0;
+
+    auto queue_map_Proportion_ptr = 
+        fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
+    auto queue_proportion = FindOrNull(*queue_map_Proportion_ptr,
+                                          iter->first);
+    float cpu_cores_requst =
+        queue_proportion->GetAllocatedResource().GetCpuResource();
+    uInt64_t memory_resource_request =
+        queue_proportion->GetAllocatedResource().GetMemoryResource();
+    uInt64_t ephimeral_resource_request =
+        queue_proportion->GetAllocatedResource().GetEphimeralResource();
+    LOG(INFO)<<"cpu allocated in q = "<<cpu_cores_requst<<endl;
     // go through all the Pod group
     auto pg_list = iter->second;
     for (auto pgIter = pg_list.begin(); pgIter != pg_list.end(); pgIter++) {
@@ -2065,6 +2074,8 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 float deserved_cpu_for_q =
                     q_proportion_ptr->GetDeservedResource()
                         .GetCpuResource();  // this can be moved up
+                LOG(INFO)<<"!!! deserved_cpu_for_q = "<<deserved_cpu_for_q
+                    <<"!!! cpu_cores_requst ="<<cpu_cores_requst<<endl;
                 if ((deserved_cpu_for_q - cpu_cores_requst) < 0) {
                   numOfTaskInJob =
                       numOfTaskInJob -
@@ -2093,6 +2104,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                                          deserved_ephimeral_for_q) /
                                         resource_vector->ephemeral_storage_);
                 }
+                cout<<"number of task in job = "<<numOfTaskInJob<<endl;
                 if (numOfTaskInJob < 1) {
                   numOfTaskInJob = 0;
                   break;
