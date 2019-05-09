@@ -1193,6 +1193,9 @@ Status QueueRemoved(ServerContext* context,
         unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
             firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
         queue_map_proportion_ptr->erase(queue_name);
+        auto queue_to_ordered_pg_list_map =
+            firmament_scheduler_serivice_utils_->GetQtoOrderedPgListMap();
+        queue_to_ordered_pg_list_map->erase(queue_name);
         LOG(INFO) << " Queue removed = " <<queue_name<< endl;
         reply->set_type(QUEUE_REMOVED_OK);
       } else {
@@ -1356,19 +1359,19 @@ Status PodGroupRemoved(ServerContext* context,
       pod_group_map_ptr->erase(pod_group_name);
       auto pod_group_to_queue_map_ptr =
           firmament_scheduler_serivice_utils_->GetPodGroupToQueue();
-      pod_group_to_queue_map_ptr->erase(pod_group_name);
+      if(pod_group_to_queue_map_ptr) {
+        pod_group_to_queue_map_ptr->erase(pod_group_name);
+      }
       auto pg_to_resource_allocated_map_ptr =
           firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
-
-       //***TBD debugging remove it start
-       cout<<"::PodGroupRemoved size of pg to res allocated map = "<<pg_to_resource_allocated_map_ptr->size()<<endl;
-       for(auto it = pg_to_resource_allocated_map_ptr->begin(); it != pg_to_resource_allocated_map_ptr->end();
-           ++it) {
-         cout<<" \n:: PodGroupRemoved pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
-       }
-      //***TBD end
-
-      pg_to_resource_allocated_map_ptr->erase(pod_group_name);
+      if(pg_to_resource_allocated_map_ptr) {
+        pg_to_resource_allocated_map_ptr->erase(pod_group_name);
+      }
+      auto pod_group_to_Arc_cost =
+          firmament_scheduler_serivice_utils_->GetPodGroupToArcCost();
+      if(pod_group_to_Arc_cost) {
+        pod_group_to_Arc_cost->erase(pod_group_name);
+      }
       auto job_id_to_pod_group_map_ptr =
             firmament_scheduler_serivice_utils_->GetJobIdToPodGroupMap();
       for(auto it = job_id_to_pod_group_map_ptr->begin();
@@ -1398,11 +1401,27 @@ Status PodGroupRemoved(ServerContext* context,
  *PodGroup Updated
  */
 Status PodGroupUpdated(ServerContext* context,
-                       const PodGroupDescriptor* queue_desc_ptr,
+                       const PodGroupDescriptor* pod_desc_ptr,
                        PodGroupUpdateResponse* reply) override {
   boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
-  LOG(INFO) << "Why should we update pod group ???" << endl;
-  reply->set_type(PODGROUP_UPDATED_OK);
+  if(pod_desc_ptr) {
+    string pod_group_name = pod_desc_ptr->name();
+    if(pod_group_name == string("")) {
+      auto pod_group_map_ptr =
+      firmament_scheduler_serivice_utils_->GetPodGroupMap();
+      auto pod_group_descriptor_ptr = FindOrNull(*pod_group_map_ptr,
+                                                 pod_group_name);
+      if(pod_group_descriptor_ptr) {
+        pod_group_descriptor_ptr->set_minmember(pod_desc_ptr->minmember());
+      } else {
+        reply->set_type(PODGROUP_NOT_FOUND);
+      }
+    } else {
+      reply->set_type(PODGROUP_INVALID_OK);
+    }
+  } else {
+    reply->set_type(PODGROUP_INVALID_OK);
+  }
   return Status::OK;
 }
 
@@ -1425,14 +1444,6 @@ void PodGroupAdded(string pod_group_name) {
                      DEFAULT_QUEUE_NAME);
   unordered_map<string, Resource_Allocated> * pgToResourceAllocted =
   firmament_scheduler_serivice_utils_->GetPGToResourceAllocated();
-  
-   //***TBD debugging remove it start
-   cout<<"::PodGroupAdded size of pg to res allocated map = "<<pgToResourceAllocted->size()<<endl;
-   for(auto it = pgToResourceAllocted->begin(); it != pgToResourceAllocted->end();
-       ++it) {
-     cout<<" \n:: PodGroupAdded pg name = "<<it->first<<"cpu ="<< it->second.cpu_resource<<endl;
-   }
-  //***TBD end
   Resource_Allocated resAllocated ;
   InsertIfNotPresent(pgToResourceAllocted, pod_group_name,
                      resAllocated);
