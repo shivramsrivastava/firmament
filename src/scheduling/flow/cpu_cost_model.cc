@@ -233,31 +233,17 @@ ArcDescriptor CpuCostModel::JobEquivClassToPGEquivClass(EquivClass_t ec1,
 
 ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
                                                    EquivClass_t ec2) {
-  //TODO(Pratik): calculate cost based on Pod Group priority and capacity
-  //based on proportion. Currently capacity is equal to the number of
-  //incoming tasks from the job it is associated to.
-  uint64_t capacity = 0;
-  //*** TBD remove capacity calculation
+  string* pod_group_name = NULL;
   EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, ec1);
   if (job_ec) {
-    unordered_set<TaskID_t>* tasks_set = FindOrNull(job_ec_to_tasks_, *job_ec);
-    if (tasks_set) {
-      capacity = tasks_set->size();
-    }
+    JobID_t job_id = JobIDFromString(*FindOrNull(jobec_to_jobid_,*job_ec));
+
+    Firmament_Scheduler_Service_Utils* firmament_scheduler_serivice_utils =
+    Firmament_Scheduler_Service_Utils::Instance();
+    unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group=
+    firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
+    pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
   }
-  JobID_t job_id = JobIDFromString(*FindOrNull(jobec_to_jobid_,*job_ec));
-
-  Firmament_Scheduler_Service_Utils* firmament_scheduler_serivice_utils =
-  Firmament_Scheduler_Service_Utils::Instance();
-  unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group=
-  firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
-  string* pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
-  if(pod_group_name) {
-    cout <<"***PGEquivClassToEquivClass :: pod_group_name"<<*pod_group_name<<endl;
-    } else {
-    cout <<"***PGEquivClassToEquivClass :: pod_group_name =  NULL"<<endl;
-
-    }
   return ArcDescriptor(GetPodGroupDRFArchCost(pod_group_name), 0, 0ULL);
 }
 
@@ -627,10 +613,12 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
 vector<EquivClass_t>* CpuCostModel::GetTaskEquivClassesForPGEquivClass(
                                                 EquivClass_t ec_id) {
   vector<EquivClass_t>* ecs = NULL;
-  string* job_id_ptr = FindOrNull(podgroup_ec_to_jobid_, ec_id);
-  if (job_id_ptr) {
-    TaskID_t* tid_ptr = FindOrNull(jobid_to_taskid_, *job_id_ptr);
-    ecs = GetTaskEquivClasses(*tid_ptr);
+  EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, ec_id);
+  if (job_ec) {
+    unordered_set<TaskID_t>* task_set = FindOrNull(job_ec_to_tasks_, *job_ec);
+    if (task_set) {
+      ecs = GetTaskEquivClasses(*(task_set->begin()));
+    }
   }
   if (!ecs) {
     return new vector<EquivClass_t>();
@@ -2003,13 +1991,10 @@ ArcCost_t CpuCostModel::GetPodGroupDRFArchCost(const string* pod_group_name) {
       ArcCost_t* arch_cost_ptr =
           FindOrNull(*pod_grp_to_arch_cost, *pod_group_name);
       if (arch_cost_ptr != NULL) {
-        LOG(INFO) << "arch_cost = " << *arch_cost_ptr << endl;
         arch_cost = *arch_cost_ptr;
       } else {
-        LOG(INFO) << " arch_cost_ptr == NULL" << endl;
       }
     } else {
-      LOG(INFO) << "pod_grp_to_arch_cost == NULL" << endl;
     }
   }
   return arch_cost;
@@ -2026,7 +2011,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
   for (auto iter = q_to_ordered_pg_list_map->begin();
        iter != q_to_ordered_pg_list_map->end(); ++iter) {
 
-    auto queue_map_Proportion_ptr = 
+    auto queue_map_Proportion_ptr =
         fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
     auto queue_proportion = FindOrNull(*queue_map_Proportion_ptr,
                                           iter->first);
@@ -2036,7 +2021,6 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
         queue_proportion->GetAllocatedResource().GetMemoryResource();
     uInt64_t ephimeral_resource_request =
         queue_proportion->GetAllocatedResource().GetEphimeralResource();
-    LOG(INFO)<<"cpu allocated in q = "<<cpu_cores_requst<<endl;
     // go through all the Pod group
     auto pg_list = iter->second;
     for (auto pgIter = pg_list.begin(); pgIter != pg_list.end(); pgIter++) {
@@ -2046,12 +2030,10 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
       list<EquivClass_t>* pg_ecs =
           FindOrNull(pg_name_to_pg_ec_inorder_, pod_group_name);
       if (pg_ecs != NULL) {
-        uint64_t maxFlow = 0;
         for (auto pgEcIter = pg_ecs->begin(); pgEcIter != pg_ecs->end();
              ++pgEcIter) {
           // get job ec
           EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *pgEcIter);
-          /// cout<<"*** before job_ec != NULL"<<endl;
           if (job_ec != NULL) {
             // get all the task under the job and calculate all the requested
             // resources
@@ -2074,8 +2056,6 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 float deserved_cpu_for_q =
                     q_proportion_ptr->GetDeservedResource()
                         .GetCpuResource();  // this can be moved up
-                LOG(INFO)<<"!!! deserved_cpu_for_q = "<<deserved_cpu_for_q
-                    <<"!!! cpu_cores_requst ="<<cpu_cores_requst<<endl;
                 if ((deserved_cpu_for_q - cpu_cores_requst) < 0) {
                   numOfTaskInJob =
                       numOfTaskInJob -
@@ -2104,7 +2084,6 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                                          deserved_ephimeral_for_q) /
                                         resource_vector->ephemeral_storage_);
                 }
-                cout<<"number of task in job = "<<numOfTaskInJob<<endl;
                 if (numOfTaskInJob < 1) {
                   numOfTaskInJob = 0;
                   break;
@@ -2121,4 +2100,5 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
     }
   }
 }
+
 }  // namespace firmament

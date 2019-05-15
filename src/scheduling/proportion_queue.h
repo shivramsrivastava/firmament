@@ -38,7 +38,6 @@ struct Resources_Available {
   uInt64_t ephemeral_resource;
 
   Resources_Available() {
-    cout<<"*** initiling cpu_res mem and ephemeral res"<<endl;
     cpu_resource = 0.0;
     memory_resource = 0;
     ephemeral_resource = 0;

@@ -1470,7 +1470,6 @@ void FlowGraphManager::UpdateMaxFlowForProportion() {
   cost_model_->CalculateMaxFlowForPgEcToTaskEc(&pgec_to_max_flow_map);
   for(auto it = pgec_to_max_flow_map.begin();
                 it != pgec_to_max_flow_map.end();++it) {
-    LOG(INFO)<<"max flow = "<<it->second<<endl;
     FlowGraphNode* pref_ec_node = NodeForEquivClass(it->first);
     FlowGraphArc* flow_graph_arc =
                   pref_ec_node->outgoing_arc_map_.begin()->second;

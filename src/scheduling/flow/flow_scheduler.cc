@@ -209,36 +209,8 @@ uint64_t FlowScheduler::ApplySchedulingDeltas(
     ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
     CHECK_NOTNULL(td_ptr);
     CHECK_NOTNULL(rs);
-    JobDescriptor* jd = FindOrNull(*job_map_,
-                                   JobIDFromString(td_ptr->job_id()));
-    CHECK_NOTNULL(jd);
-    if (jd->is_gang_scheduling_job()) {
-      if (!affinity_batch_schedule && td_ptr->has_affinity()
-          && (td_ptr->affinity().has_pod_affinity()
-          || td_ptr->affinity().has_pod_anti_affinity())) {
-        if (queue_based_schedule) {
-          vector<SchedulingDelta>* delta_vec =
-                            FindOrNull(affinity_job_to_deltas_, jd);
-          if (delta_vec) {
-            if (affinity_delta_tasks.find(delta->task_id())
-                                     == affinity_delta_tasks.end()) {
-              delta_vec->push_back(*delta);
-              affinity_delta_tasks.insert(delta->task_id());
-            }
-          }
-        }
-      } else {
-        uint64_t scheduled_tasks_count = jd->scheduled_tasks_count();
-        if (scheduled_tasks_count < jd->min_number_of_tasks()) {
-          jd->set_scheduled_tasks_count(--scheduled_tasks_count);
-          delta->set_type(SchedulingDelta::NOOP);
-          if (delta_jobs.find(jd) == delta_jobs.end()) {
-            delta_jobs.insert(jd);
-          }
-          continue;
-        }
-      }
-    }
+    if (!CheckUpdateApplySchedulingDeltas(td_ptr, delta)) continue;
+
     if (delta->type() == SchedulingDelta::NOOP) {
       // We should not get any NOOP deltas as they get filtered before.
       continue;
@@ -376,6 +348,7 @@ void FlowScheduler::HandleJobCompletion(JobID_t job_id) {
   RemoveAffinityAntiAffinityJobData(job_id);
   if(FLAGS_proportion_drf_based_scheduling) {
     RemoveDummyPg(job_id);
+    RemoveJobToPGData(job_id);
   }
   // Call into superclass handler
   EventDrivenScheduler::HandleJobCompletion(job_id);
@@ -391,6 +364,7 @@ void FlowScheduler::HandleJobRemoval(JobID_t job_id) {
   }
   if(FLAGS_proportion_drf_based_scheduling) {
     RemoveDummyPg(job_id);
+    RemoveJobToPGData(job_id);
    //*** TBD what about removing job_id_to_pg map???
   }
   // Call into superclass handler
@@ -987,20 +961,7 @@ uint64_t FlowScheduler::RunSchedulingIteration(
     flow_graph_manager_->NodeBindingToSchedulingDeltas(it->first, it->second,
                                                        &task_bindings_,
                                                        &deltas);
-    const FlowGraphNode& task_node =
-        flow_graph_manager_->node_for_node_id(it->first);
-    CHECK(task_node.IsTaskNode());
-    CHECK_NOTNULL(task_node.td_ptr_);
-    TaskDescriptor* td_ptr = task_node.td_ptr_;
-    JobDescriptor* jd = FindOrNull(*job_map_,
-                                   JobIDFromString(td_ptr->job_id()));
-    CHECK_NOTNULL(jd);
-    if (jd->is_gang_scheduling_job()
-        && affinity_delta_tasks.find(td_ptr->uid())
-                                  == affinity_delta_tasks.end()) {
-      uint64_t scheduled_tasks_count = jd->scheduled_tasks_count();
-      jd->set_scheduled_tasks_count(++scheduled_tasks_count);
-    }
+    AggregateScheduleTaskCount(it->first);
   }
   // Freeing the mappings because they're not used below.
   delete task_mappings;
@@ -1101,6 +1062,7 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
                     unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                     vector<uint64_t>* unscheduled_affinity_tasks) {
   // update batch schedule deltas
+  unordered_set<uint64_t> marked_tasks;
   for (auto job_ptr : delta_jobs) {
     TaskDescriptor rtd = job_ptr->root_task();
     for (auto td : rtd.spawned()) {
@@ -1127,52 +1089,14 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
     JobDescriptor* jd_ptr = it->first;
     TaskDescriptor root_td = jd_ptr->root_task();
     if (!it->second.size() && !jd_ptr->min_number_of_tasks()) {
-      for (auto td : root_td.spawned()) {
-        if (td.state() != TaskDescriptor::RUNNING) {
-          unscheduled_affinity_tasks_set->insert(td.uid());
-          unscheduled_affinity_tasks->push_back(td.uid());
-        }
-      }
-      if (root_td.state() != TaskDescriptor::RUNNING) {
-        unscheduled_affinity_tasks_set->insert(root_td.uid());
-        unscheduled_affinity_tasks->push_back(root_td.uid());
-      }
+      UpdateJobUnscheduleTasks(root_td, unscheduled_affinity_tasks_set,
+                               unscheduled_affinity_tasks, &marked_tasks);
       continue;
     }
     if (jd_ptr->scheduled_tasks_count() < jd_ptr->min_number_of_tasks()) {
       for (auto delta : it->second) {
         TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, delta.task_id());
-        ResourceID_t res_id = ResourceIDFromString(delta.resource_id());
-        ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
-        CHECK_NOTNULL(td_ptr);
-        CHECK_NOTNULL(rs);
-        if (FLAGS_resource_stats_update_based_on_resource_reservation) {
-          AddKnowledgeBaseResourceStats(td_ptr, rs);
-        }
-        HandleTaskEviction(td_ptr, rs->mutable_descriptor());
-        td_ptr->set_state(TaskDescriptor::CREATED);
-        td_ptr->clear_scheduled_to_resource();
-        if (no_conflict_root_tasks_.find(root_td.uid())
-                                    == no_conflict_root_tasks_.end()) {
-          vector<TaskID_t>::iterator it =
-                          find(affinity_antiaffinity_tasks_->begin(),
-                          affinity_antiaffinity_tasks_->end(), td_ptr->uid());
-          if (it == affinity_antiaffinity_tasks_->end()) {
-            affinity_antiaffinity_tasks_->push_back(td_ptr->uid());
-          }
-        }
-        JobID_t job_id = JobIDFromString(jd_ptr->uuid());
-        unordered_set<TaskID_t>* runnables_for_job =
-          FindOrNull(runnable_tasks_, job_id);
-        if (runnables_for_job) {
-          runnables_for_job->erase(delta.task_id());
-        }
-        vector<SchedulingDelta>::iterator it =
-              find_if(deltas_output->begin(), deltas_output->end(),
-              [&](SchedulingDelta& d){return (d.task_id() == delta.task_id());});
-        if (it != deltas_output->end()) {
-          deltas_output->erase(it);
-        }
+        RemoveSchedulingDeltasData(td_ptr, deltas_output);
       }
       for (auto td : root_td.spawned()) {
         unscheduled_affinity_tasks_set->insert(td.uid());
@@ -1181,21 +1105,13 @@ void FlowScheduler::UpdateGangSchedulingDeltas(
       unscheduled_affinity_tasks_set->insert(root_td.uid());
       unscheduled_affinity_tasks->push_back(root_td.uid());
     } else {
-      for (auto td : root_td.spawned()) {
-        if (td.state() != TaskDescriptor::RUNNING) {
-          unscheduled_affinity_tasks_set->insert(td.uid());
-          unscheduled_affinity_tasks->push_back(td.uid());
-        }
-      }
-      if (root_td.state() != TaskDescriptor::RUNNING) {
-        unscheduled_affinity_tasks_set->insert(root_td.uid());
-        unscheduled_affinity_tasks->push_back(root_td.uid());
-      }
+      UpdateJobUnscheduleTasks(root_td, unscheduled_affinity_tasks_set,
+                               unscheduled_affinity_tasks, &marked_tasks);
     }
     jd_ptr->set_scheduled_tasks_count(0);
     it->second.clear();
   }
-  affinity_delta_tasks.clear();
+  marked_delta_tasks.clear();
 }
 
 void FlowScheduler::UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr) {
@@ -1226,10 +1142,6 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
       ResourceStatsAggregate resource_aggregate =
           knowledge_base_->GetResourceStatsAgg();
 
-      cout << "cpu aggregate ="
-           << resource_aggregate.resource_allocatable.cpu_resource << endl;
-      cout << "cpu allocated =" << allocated_resource_ptr->cpu_resource << endl;
-
       /*TBD here we should put a list to iterate through the resources*/
       float cpu_resource_ratio =
           ResourceRatio(resource_aggregate.resource_allocatable.cpu_resource,
@@ -1257,7 +1169,6 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
       // converting ratio into cost by * with 1000
       // so this value would be between 0 to 1000
       ratio *= MAX_ARCH_COST_FOR_DRF;
-      LOG(INFO) << "COST  = " << ratio << endl;
       ArcCost_t arc_cost_for_pg = (ArcCost_t)ratio;
       unordered_map<string, ArcCost_t>* pod_grp_to_arc_cost =
           fmt_sched_service_utils_->GetPodGroupToArcCost();
@@ -1292,9 +1203,6 @@ void FlowScheduler::CalculatePodGroupArcCostDRF(const TaskDescriptor& td) {
           ArcCost_t* arc_cost = FindOrNull(*pod_grp_to_arc_cost, *it);
           if (arc_cost) {
             if (*arc_cost > arc_cost_for_pg) {
-              LOG(INFO) << "*** pod group name " << *pod_group_name_ptr
-                        << "old arch cost = " << *arc_cost
-                        << "new arc cost = " << arc_cost_for_pg << endl;
               ordered_pg_list_ptr->insert(it, *pod_group_name_ptr);
               inserted = true;
               break;
@@ -1359,9 +1267,8 @@ void FlowScheduler::HandleAllocatedResourceForPgAndQ(
                                            ephemeral_storage);
     } else {
       /*** TBD need to handle */
-      cout << "resource_allocated_ptr != NULL else "
-              "HandleAllocatedResourceForPgAndQ"
-           << endl;
+      LOG(INFO) <<
+        "resource_allocated_ptr != NULL else HandleAllocatedResourceForPgAndQ";
     }
 
     // step 2. update the Queue proportion
@@ -1399,12 +1306,377 @@ void FlowScheduler::RemoveDummyPg(JobID_t job_id) {
     auto job_id_to_pod_group =
         fmt_sched_service_utils_->GetJobIdToPodGroupMap();
     job_id_to_pod_group->erase(job_id);
-    auto pod_group_map_ptr = fmt_sched_service_utils_->GetPodGroupMap();
+    auto pod_group_map_ptr = fmt_sched_service_utils_->GetPGNameToPGDescMap();
     pod_group_map_ptr->erase(job_desc_ptr->uuid());
     auto pod_group_to_queue_map_ptr =
         fmt_sched_service_utils_->GetPodGroupToQueue();
     pod_group_to_queue_map_ptr->erase(job_desc_ptr->uuid());
-  } else { /* else do nothing */
+  } else {/* else do nothing */}
+}
+
+void FlowScheduler::AggregateScheduleTaskCount(uint64_t node_id) {
+  const FlowGraphNode& task_node =
+      flow_graph_manager_->node_for_node_id(node_id);
+  CHECK(task_node.IsTaskNode());
+  CHECK_NOTNULL(task_node.td_ptr_);
+  TaskDescriptor* td_ptr = task_node.td_ptr_;
+  JobDescriptor* jd = FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
+  CHECK_NOTNULL(jd);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+        job_id_to_pod_group_map_ptr =
+            fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+    CHECK_NOTNULL(job_id_to_pod_group_map_ptr);
+    string* pod_group_name_ptr =
+        FindOrNull(*job_id_to_pod_group_map_ptr, JobIDFromString(jd->uuid()));
+    if (pod_group_name_ptr) {
+      unordered_map<string, PodGroupDescriptor>* pg_name_to_pg_desc =
+          fmt_sched_service_utils_->GetPGNameToPGDescMap();
+      PodGroupDescriptor* pg_desc =
+          FindOrNull(*pg_name_to_pg_desc, *pod_group_name_ptr);
+      if (pg_desc && (pg_desc->min_member() > 1) &&
+          (marked_delta_tasks.find(td_ptr->uid()) ==
+           marked_delta_tasks.end())) {
+        int32_t* count =
+            FindOrNull(pg_name_to_task_scheduled_count_, *pod_group_name_ptr);
+        if (count) {
+          *count += 1;
+        } else {
+          InsertIfNotPresent(&pg_name_to_task_scheduled_count_,
+                             *pod_group_name_ptr, 1);
+        }
+      }
+    }
+  } else {
+    if (jd->is_gang_scheduling_job() &&
+        marked_delta_tasks.find(td_ptr->uid()) ==
+            marked_delta_tasks.end()) {
+      uint64_t scheduled_tasks_count = jd->scheduled_tasks_count();
+      jd->set_scheduled_tasks_count(++scheduled_tasks_count);
+    }
+  }
+}
+
+bool FlowScheduler::CheckUpdateApplySchedulingDeltas(TaskDescriptor* td_ptr,
+                                                     SchedulingDelta* delta) {
+  JobDescriptor* jd = FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
+  CHECK_NOTNULL(jd);
+  if (FLAGS_proportion_drf_based_scheduling) {
+    unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+        job_id_to_pod_group_map_ptr =
+            fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+    CHECK_NOTNULL(job_id_to_pod_group_map_ptr);
+    string* pod_group_name_ptr =
+        FindOrNull(*job_id_to_pod_group_map_ptr, JobIDFromString(jd->uuid()));
+    if (pod_group_name_ptr) {
+      unordered_map<string, PodGroupDescriptor>* pg_name_to_pg_desc =
+          fmt_sched_service_utils_->GetPGNameToPGDescMap();
+      CHECK_NOTNULL(pg_name_to_pg_desc);
+      PodGroupDescriptor* pg_desc =
+          FindOrNull(*pg_name_to_pg_desc, *pod_group_name_ptr);
+      if (pg_desc && (pg_desc->min_member() > 1)) {
+        if (!affinity_batch_schedule && td_ptr->has_affinity() &&
+            (td_ptr->affinity().has_pod_affinity() ||
+             td_ptr->affinity().has_pod_anti_affinity())) {
+          if (queue_based_schedule) {
+            vector<SchedulingDelta>* delta_vec =
+                FindOrNull(affinity_job_to_deltas_, jd);
+            if (delta_vec) {
+              if (marked_delta_tasks.find(delta->task_id()) ==
+                  marked_delta_tasks.end()) {
+                delta_vec->push_back(*delta);
+                marked_delta_tasks.insert(delta->task_id());
+              }
+            }
+          }
+        } else {
+          int32_t* count =
+              FindOrNull(pg_name_to_task_scheduled_count_, *pod_group_name_ptr);
+          if (count && (*count < pg_desc->min_member())) {
+            if (delta_jobs.find(jd) == delta_jobs.end()) {
+              delta_jobs.insert(jd);
+            }
+          }
+          marked_delta_tasks.insert(delta->task_id());
+        }
+      }
+    }
+  } else {
+    if (jd->is_gang_scheduling_job()) {
+      if (!affinity_batch_schedule && td_ptr->has_affinity() &&
+          (td_ptr->affinity().has_pod_affinity() ||
+           td_ptr->affinity().has_pod_anti_affinity())) {
+        if (queue_based_schedule) {
+          vector<SchedulingDelta>* delta_vec =
+              FindOrNull(affinity_job_to_deltas_, jd);
+          if (delta_vec) {
+            if (marked_delta_tasks.find(delta->task_id()) ==
+                marked_delta_tasks.end()) {
+              delta_vec->push_back(*delta);
+              marked_delta_tasks.insert(delta->task_id());
+            }
+          }
+        }
+      } else {
+        uint64_t scheduled_tasks_count = jd->scheduled_tasks_count();
+        if (scheduled_tasks_count < jd->min_number_of_tasks()) {
+          jd->set_scheduled_tasks_count(--scheduled_tasks_count);
+          delta->set_type(SchedulingDelta::NOOP);
+          if (delta_jobs.find(jd) == delta_jobs.end()) {
+            delta_jobs.insert(jd);
+          }
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+bool FlowScheduler::SatisfyGangSchedule(JobDescriptor* jdp) {
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      job_id_to_pod_group_map_ptr =
+          fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+  CHECK_NOTNULL(job_id_to_pod_group_map_ptr);
+  string* pod_group_name_ptr =
+      FindOrNull(*job_id_to_pod_group_map_ptr, JobIDFromString(jdp->uuid()));
+  if (pod_group_name_ptr) {
+    unordered_map<string, PodGroupDescriptor>* pg_name_to_pg_desc =
+        fmt_sched_service_utils_->GetPGNameToPGDescMap();
+    CHECK_NOTNULL(pg_name_to_pg_desc);
+    PodGroupDescriptor* pg_desc =
+        FindOrNull(*pg_name_to_pg_desc, *pod_group_name_ptr);
+    int32_t* count =
+        FindOrNull(pg_name_to_task_scheduled_count_, *pod_group_name_ptr);
+    if (pg_desc && count && (pg_desc->min_member() > 1)
+        && (*count < pg_desc->min_member())) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void FlowScheduler::RevertQueuePodGroupResourceData(TaskDescriptor* td_ptr) {
+  float cpu_cores = td_ptr->resource_request().cpu_cores();
+  uint64_t ram_cap = td_ptr->resource_request().ram_cap();
+  uint64_t ephemeral_storage = td_ptr->resource_request().ephemeral_storage();
+
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      job_id_to_pod_group_ptr =
+          fmt_sched_service_utils_->GetJobIdToPodGroupMap();
+  string* pod_group_name_ptr =
+      FindOrNull(*job_id_to_pod_group_ptr, JobIDFromString(td_ptr->job_id()));
+  if (pod_group_name_ptr) {
+    unordered_map<string, Resource_Allocated>* pg_to_resource_allocated_ptr =
+        fmt_sched_service_utils_->GetPGToResourceAllocated();
+    Resource_Allocated* resource_allocated_ptr =
+        FindOrNull(*pg_to_resource_allocated_ptr, *pod_group_name_ptr);
+    if (resource_allocated_ptr) {
+      resource_allocated_ptr->DeductResources(cpu_cores, ram_cap,
+                                              ephemeral_storage);
+    }
+    unordered_map<string, string>* pod_group_to_queue_map_ptr =
+        fmt_sched_service_utils_->GetPodGroupToQueue();
+    string* queue_name =
+        FindOrNull(*pod_group_to_queue_map_ptr, *pod_group_name_ptr);
+    if (queue_name) {
+      unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
+          fmt_sched_service_utils_->GetQueueMapToProportion();
+      Queue_Proportion* queue_proportion =
+          FindOrNull(*queue_map_proportion_ptr, *queue_name);
+      if (queue_proportion) {
+        queue_proportion->DeductAllocatedResource(cpu_cores, ram_cap,
+                                                  ephemeral_storage);
+        queue_proportion->AddRequestedResource(cpu_cores, ram_cap,
+                                               ephemeral_storage);
+      }
+    }
+  }
+}
+
+void FlowScheduler::RemoveSchedulingDeltasData(TaskDescriptor* td_ptr,
+                                vector<SchedulingDelta>* deltas_output) {
+  CHECK_NOTNULL(td_ptr);
+  ResourceID_t res_id = ResourceIDFromString(td_ptr->scheduled_to_resource());
+  ResourceStatus* rs = FindPtrOrNull(*resource_map_, res_id);
+  CHECK_NOTNULL(rs);
+  if (FLAGS_resource_stats_update_based_on_resource_reservation) {
+    AddKnowledgeBaseResourceStats(td_ptr, rs);
+  }
+  if (FLAGS_proportion_drf_based_scheduling) {
+    RevertQueuePodGroupResourceData(td_ptr);
+  }
+  HandleTaskEviction(td_ptr, rs->mutable_descriptor());
+  td_ptr->set_state(TaskDescriptor::CREATED);
+  td_ptr->clear_scheduled_to_resource();
+  JobDescriptor* jd_ptr =
+      FindOrNull(*job_map_, JobIDFromString(td_ptr->job_id()));
+  CHECK_NOTNULL(jd_ptr);
+  if (jd_ptr->root_task().uid() == td_ptr->uid()) {
+    jd_ptr->set_state(JobDescriptor::CREATED);
+  }
+  if (no_conflict_root_tasks_.find(jd_ptr->root_task().uid()) ==
+      no_conflict_root_tasks_.end()) {
+    vector<TaskID_t>::iterator it =
+        find(affinity_antiaffinity_tasks_->begin(),
+             affinity_antiaffinity_tasks_->end(), td_ptr->uid());
+    if (it == affinity_antiaffinity_tasks_->end()) {
+      affinity_antiaffinity_tasks_->push_back(td_ptr->uid());
+    }
+  }
+  JobID_t job_id = JobIDFromString(jd_ptr->uuid());
+  unordered_set<TaskID_t>* runnables_for_job =
+      FindOrNull(runnable_tasks_, job_id);
+  if (runnables_for_job) {
+    runnables_for_job->erase(td_ptr->uid());
+  }
+  vector<SchedulingDelta>::iterator it = find_if(
+      deltas_output->begin(), deltas_output->end(),
+      [&](SchedulingDelta& d) { return (d.task_id() == td_ptr->uid()); });
+  if (it != deltas_output->end()) {
+    deltas_output->erase(it);
+  }
+}
+
+void FlowScheduler::UpdateJobUnscheduleTasks(TaskDescriptor root_td,
+                    unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
+                    vector<uint64_t>* unscheduled_affinity_tasks,
+                    unordered_set<uint64_t>* marked_tasks) {
+  for (auto td : root_td.spawned()) {
+    if (td.state() != TaskDescriptor::RUNNING) {
+      if (marked_tasks->find(td.uid()) != marked_tasks->end()) continue;
+      unscheduled_affinity_tasks_set->insert(td.uid());
+      unscheduled_affinity_tasks->push_back(td.uid());
+    }
+  }
+  if (root_td.state() != TaskDescriptor::RUNNING) {
+    if (marked_tasks->find(root_td.uid()) == marked_tasks->end()) {
+      unscheduled_affinity_tasks_set->insert(root_td.uid());
+      unscheduled_affinity_tasks->push_back(root_td.uid());
+    }
+  }
+}
+
+void FlowScheduler::AddRemainingPGJobs(JobDescriptor* jd_ptr) {
+  string pg_name;
+  if (jd_ptr->pod_group_name() == string("")) {
+    pg_name = jd_ptr->uuid();
+  } else {
+    pg_name = jd_ptr->pod_group_name();
+  }
+  unordered_map<string, unordered_set<JobID_t, boost::hash<JobID_t>>>*
+      pg_name_to_job_list_ptr = fmt_sched_service_utils_->GetPGNameToJobList();
+  CHECK_NOTNULL(pg_name_to_job_list_ptr);
+  unordered_set<JobID_t, boost::hash<JobID_t>>* job_list =
+      FindOrNull(*pg_name_to_job_list_ptr, pg_name);
+  if (job_list) {
+    for (auto job_id : *job_list) {
+      JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);
+      if (jd_ptr) {
+        delta_jobs.insert(jd_ptr);
+      }
+    }
+  }
+}
+
+void FlowScheduler::UpdatePGGangSchedulingDeltas(
+                    SchedulerStats* scheduler_stats,
+                    vector<SchedulingDelta>* deltas_output,
+                    vector<uint64_t>* unscheduled_batch_tasks,
+                    unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
+                    vector<uint64_t>* unscheduled_affinity_tasks) {
+  // update batch schedule deltas
+  unordered_set<uint64_t> marked_tasks;
+  for (auto job_ptr : delta_jobs) {
+    if (SatisfyGangSchedule(job_ptr)) {
+      continue;
+    }
+    AddRemainingPGJobs(job_ptr);
+    TaskDescriptor rtd = job_ptr->root_task();
+    for (auto td : rtd.spawned()) {
+      if (td.state() == TaskDescriptor::RUNNING) {
+        TaskDescriptor* tdp = FindPtrOrNull(*task_map_, td.uid());
+        RemoveSchedulingDeltasData(tdp, deltas_output);
+      }
+      vector<uint64_t>::iterator it = find(unscheduled_batch_tasks->begin(),
+                                      unscheduled_batch_tasks->end(),
+                                      td.uid());
+      if (it == unscheduled_batch_tasks->end()) {
+        unscheduled_batch_tasks->push_back(td.uid());
+        marked_tasks.insert(td.uid());
+      }
+    }
+    if (rtd.state() == TaskDescriptor::RUNNING) {
+      TaskDescriptor* root_tdp = FindPtrOrNull(*task_map_, rtd.uid());
+      RemoveSchedulingDeltasData(root_tdp, deltas_output);
+    }
+    vector<uint64_t>::iterator rit = find(unscheduled_batch_tasks->begin(),
+                                     unscheduled_batch_tasks->end(),
+                                     rtd.uid());
+    if (rit == unscheduled_batch_tasks->end()) {
+      unscheduled_batch_tasks->push_back(rtd.uid());
+      marked_tasks.insert(rtd.uid());
+    }
+  }
+  delta_jobs.clear();
+
+  // update queue schedule deltas
+  for (auto it = affinity_job_to_deltas_.begin();
+            it != affinity_job_to_deltas_.end(); ++it) {
+    JobDescriptor* jd_ptr = it->first;
+    TaskDescriptor root_td = jd_ptr->root_task();
+    if (!it->second.size() && SatisfyGangSchedule(jd_ptr)) {
+      UpdateJobUnscheduleTasks(root_td, unscheduled_affinity_tasks_set,
+                               unscheduled_affinity_tasks, &marked_tasks);
+      continue;
+    }
+    if (!SatisfyGangSchedule(jd_ptr)) {
+      for (auto delta : it->second) {
+        TaskDescriptor* td_ptr = FindPtrOrNull(*task_map_, delta.task_id());
+        RemoveSchedulingDeltasData(td_ptr, deltas_output);
+      }
+      for (auto td : root_td.spawned()) {
+        if (marked_tasks.find(td.uid()) != marked_tasks.end()) continue;
+        unscheduled_affinity_tasks_set->insert(td.uid());
+        unscheduled_affinity_tasks->push_back(td.uid());
+      }
+      if (marked_tasks.find(root_td.uid()) == marked_tasks.end()) {
+        unscheduled_affinity_tasks_set->insert(root_td.uid());
+        unscheduled_affinity_tasks->push_back(root_td.uid());
+      }
+    } else {
+      UpdateJobUnscheduleTasks(root_td, unscheduled_affinity_tasks_set,
+                               unscheduled_affinity_tasks, &marked_tasks);
+    }
+    it->second.clear();
+  }
+  marked_delta_tasks.clear();
+  if (FLAGS_proportion_drf_based_scheduling) {
+    pg_name_to_task_scheduled_count_.clear();
+  }
+}
+
+void FlowScheduler::RemoveJobToPGData(JobID_t job_id) {
+  JobDescriptor* jd_ptr = FindOrNull(*job_map_, job_id);
+  if (jd_ptr) {
+    unordered_map<string, unordered_set<JobID_t, boost::hash<JobID_t>>>*
+            pg_name_to_job_list_ptr =
+            fmt_sched_service_utils_->GetPGNameToJobList();
+    CHECK_NOTNULL(pg_name_to_job_list_ptr);
+    string pod_group_name;
+    if (jd_ptr->pod_group_name() == string("")) {
+      pod_group_name = jd_ptr->uuid();
+    } else {
+      pod_group_name = jd_ptr->pod_group_name();
+    }
+    unordered_set<JobID_t, boost::hash<JobID_t>>* job_list =
+                          FindOrNull(*pg_name_to_job_list_ptr, pod_group_name);
+    if (job_list) {
+      job_list->erase(job_id);
+      if (!job_list->size()) {
+        pg_name_to_job_list_ptr->erase(pod_group_name);
+      }
+    }
   }
 }
 

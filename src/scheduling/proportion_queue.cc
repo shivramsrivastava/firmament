@@ -8,8 +8,6 @@ namespace firmament {
   Queue_Proportion::~Queue_Proportion() {}
   void Queue_Proportion::SetDeservedResource(float cpuRes, uInt64_t memoryRes,
                                              uInt64_t epheRes) {
-    cout<<"*** Deserved Res Cpu = "<<cpuRes<<"memory = "<< memoryRes
-        <<"epheRes ="<<epheRes<<endl;
     deserved_resource_.SetResources(cpuRes, memoryRes, epheRes);
   }
 

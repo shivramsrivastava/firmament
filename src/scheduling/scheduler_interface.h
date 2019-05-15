@@ -265,7 +265,7 @@ class SchedulerInterface : public PrintableInterface {
   virtual uint64_t ScheduleAllQueueJobs(SchedulerStats* scheduler_stats,
                                         vector<SchedulingDelta>* deltas) {
     return 0;
-  } 
+  }
 
   /**
    * Updates deltas for pod affinity/anti-affinity gang
@@ -277,6 +277,17 @@ class SchedulerInterface : public PrintableInterface {
                      vector<uint64_t>* unscheduled_normal_tasks,
                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                      vector<uint64_t>* unscheduled_affinity_tasks) {}
+
+  /**
+   * Updates deltas for pod affinity/anti-affinity gang
+   * scheduling tasks based on pod group.
+   */
+  virtual void UpdatePGGangSchedulingDeltas(
+                   SchedulerStats* scheduler_stats,
+                   vector<SchedulingDelta>* deltas_output,
+                   vector<uint64_t>* unscheduled_normal_tasks,
+                   unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
+                   vector<uint64_t>* unscheduled_affinity_tasks) {}
 
   /**
    * Schedules all runnable tasks in a job.
@@ -347,7 +358,7 @@ class SchedulerInterface : public PrintableInterface {
   shared_ptr<store::ObjectStoreInterface> object_store_;
   // Resource topology (including any registered remote resources)
   ResourceTopologyNodeDescriptor* resource_topology_;
-  //Pod affinity/anti-affinity 
+  //Pod affinity/anti-affinity
   unordered_map<string, unordered_map<string, vector<TaskID_t>>>* labels_map_;
   vector<TaskID_t> *affinity_antiaffinity_tasks_;
 };

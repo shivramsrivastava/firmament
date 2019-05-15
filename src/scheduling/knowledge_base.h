@@ -45,36 +45,6 @@
 
 
 namespace firmament {
-/*
-struct ResourceCapacity {
-  int64_t cpu_core_capacity;
-  int64_t ram_capacity;
-  int64_t ephemeral_capacity;
-};
-
-struct ResourceAllocatable {
-  int64_t cpu_core_allocatable;
-  int64_t ram_allocatable;
-  int64_t ephemeral_allocatable;
-};
-
-struct ResourceStatsAggregate {
-  ResourceCapacity resource_capcity;
-  ResourceAllocatable resource_allocatable;
-};
-
-struct Resource_Available {
-  double CPU_Resource;
-  double Memory_Resource;
-  double Ephemeral_Resource;
-};
-
-class Queue_Proportion {
-  Resource_Available Deserved_Resource;
-  Resource_Available Allocated_Resource;
-  Resource_Available Requested_Resource;
-};
-*/
 
 class KnowledgeBase {
  public:

@@ -42,8 +42,10 @@
 #include "storage/reference_types.h"
 #include "storage/reference_utils.h"
 
+
 DEFINE_uint64(task_fail_timeout, 60, "Time (in seconds) after which to declare "
               "a task as failed if it has not sent heartbeats");
+DECLARE_bool(proportion_drf_based_scheduling);
 
 namespace firmament {
 namespace scheduler {
@@ -83,6 +85,8 @@ EventDrivenScheduler::EventDrivenScheduler(
   one_task_runnable = false;
   queue_based_schedule = false;
   affinity_batch_schedule = false;
+  firmament_scheduler_serivice_utils_ =
+                                 Firmament_Scheduler_Service_Utils::Instance();
 }
 
 EventDrivenScheduler::~EventDrivenScheduler() {
@@ -105,6 +109,26 @@ void EventDrivenScheduler::AddJob(JobDescriptor* jd_ptr) {
   AddPodAffinityAntiAffinityJobData(jd_ptr);
 }
 
+bool EventDrivenScheduler::IsPGGangSchedulingJob(JobDescriptor* jdp) {
+  unordered_map<JobID_t, string, boost::hash<JobID_t>>*
+      job_id_to_pod_group_map_ptr =
+          firmament_scheduler_serivice_utils_->GetJobIdToPodGroupMap();
+  CHECK_NOTNULL(job_id_to_pod_group_map_ptr);
+  string* pod_group_name_ptr =
+      FindOrNull(*job_id_to_pod_group_map_ptr, JobIDFromString(jdp->uuid()));
+  if (pod_group_name_ptr) {
+    unordered_map<string, PodGroupDescriptor>* pg_name_to_pg_desc =
+        firmament_scheduler_serivice_utils_->GetPGNameToPGDescMap();
+    CHECK_NOTNULL(pg_name_to_pg_desc);
+    PodGroupDescriptor* pg_desc =
+        FindOrNull(*pg_name_to_pg_desc, *pod_group_name_ptr);
+    if (pg_desc && (pg_desc->min_member() > 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void EventDrivenScheduler::AddPodAffinityAntiAffinityJobData(
                                                 JobDescriptor* jd_ptr) {
   TaskDescriptor rtd = jd_ptr->root_task();
@@ -124,7 +148,13 @@ void EventDrivenScheduler::AddPodAffinityAntiAffinityJobData(
       unordered_set<TaskID_t> children_set;
       InsertIfNotPresent(&root_to_children_tasks_, rtd.uid(), children_set);
     } else {
-      if (jd_ptr->is_gang_scheduling_job()) {
+      bool is_gang_scheduling_job = false;
+      if (FLAGS_proportion_drf_based_scheduling) {
+        is_gang_scheduling_job = IsPGGangSchedulingJob(jd_ptr);
+      } else {
+        is_gang_scheduling_job = jd_ptr->is_gang_scheduling_job();
+      }
+      if (is_gang_scheduling_job) {
         vector<SchedulingDelta> delta_v;
         InsertIfNotPresent(&affinity_job_to_deltas_, jd_ptr, delta_v);
       }

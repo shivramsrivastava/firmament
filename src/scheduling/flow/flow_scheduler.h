@@ -104,6 +104,12 @@ class FlowScheduler : public EventDrivenScheduler {
                      vector<uint64_t>* unscheduled_normal_tasks,
                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
                      vector<uint64_t>* unscheduled_affinity_tasks);
+  virtual void UpdatePGGangSchedulingDeltas(
+                      SchedulerStats* scheduler_stats,
+                      vector<SchedulingDelta>* deltas_output,
+                      vector<uint64_t>* unscheduled_batch_tasks,
+                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
+                      vector<uint64_t>* unscheduled_affinity_tasks);
   virtual void UpdateSpawnedToRootTaskMap(TaskDescriptor* td_ptr);
   virtual uint64_t ScheduleAllJobs(SchedulerStats* scheduler_stats,
                                    vector<SchedulingDelta>* deltas);
@@ -159,7 +165,19 @@ class FlowScheduler : public EventDrivenScheduler {
   float ResourceRatio(T aggregate, T allocated);
   void HandleAllocatedResourceForPgAndQ(const TaskDescriptor& task_descriptor);
   void RemoveDummyPg(JobID_t job_id);
-
+  void AggregateScheduleTaskCount(uint64_t node_id);
+  bool CheckUpdateApplySchedulingDeltas(TaskDescriptor* td_ptr,
+                                                       SchedulingDelta* delta);
+  bool SatisfyGangSchedule(JobDescriptor* jdp);
+  void RemoveSchedulingDeltasData(TaskDescriptor* td_ptr,
+                                  vector<SchedulingDelta>* deltas_output);
+  void UpdateJobUnscheduleTasks(TaskDescriptor root_td,
+                      unordered_set<uint64_t>* unscheduled_affinity_tasks_set,
+                      vector<uint64_t>* unscheduled_affinity_tasks,
+                      unordered_set<uint64_t>* marked_tasks);
+  void RevertQueuePodGroupResourceData(TaskDescriptor* td_ptr);
+  void RemoveJobToPGData(JobID_t job_id);
+  void AddRemainingPGJobs(JobDescriptor* jd_ptr);
 
   // Pointer to the coordinator's topology manager
   shared_ptr<TopologyManager> topology_manager_;
@@ -189,6 +207,7 @@ class FlowScheduler : public EventDrivenScheduler {
   TaskID_t task_to_be_scheduled_;
   unordered_set<TaskID_t> affinity_batch_job_schedule_;
   Firmament_Scheduler_Service_Utils* fmt_sched_service_utils_;
+  unordered_map<string, int32_t> pg_name_to_task_scheduled_count_;
 };
 
 }  // namespace scheduler

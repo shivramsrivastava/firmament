@@ -77,8 +77,13 @@ class Firmament_Scheduler_Service_Utils {
 
   inline void ClearQtoOrderedPgListMap() { queue_to_ordered_pg_list_map_.clear(); }
 
-  inline unordered_map<string, PodGroupDescriptor>* GetPodGroupMap() {
-    return &pod_group_map_;
+  inline unordered_map<string, PodGroupDescriptor>* GetPGNameToPGDescMap() {
+    return &pg_name_to_pg_desc_;
+  }
+
+  inline unordered_map<string, unordered_set<JobID_t, boost::hash<JobID_t>>>*
+                                                     GetPGNameToJobList() {
+    return &pg_name_to_job_list_;
   }
 
   static Firmament_Scheduler_Service_Utils* instance_;
@@ -93,7 +98,9 @@ class Firmament_Scheduler_Service_Utils {
   unordered_map<JobID_t, string, boost::hash<JobID_t>> job_id_to_pod_group_map_;
   unordered_map<string, ArcCost_t> pod_group_to_Arc_cost_;
   unordered_map<string, list<string>> queue_to_ordered_pg_list_map_;
-  unordered_map<string, PodGroupDescriptor> pod_group_map_;
+  unordered_map<string, PodGroupDescriptor> pg_name_to_pg_desc_;
+  unordered_map<string, unordered_set<JobID_t, boost::hash<JobID_t>>>
+                                                      pg_name_to_job_list_;
 };
 
 } // namespace firmament

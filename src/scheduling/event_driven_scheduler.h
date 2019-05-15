@@ -42,6 +42,7 @@
 #include "scheduling/scheduler_interface.h"
 #include "scheduling/scheduling_event_notifier_interface.h"
 #include "storage/reference_interface.h"
+#include "scheduling/firmament_scheduler_service_utils.h"
 
 namespace firmament {
 namespace scheduler {
@@ -159,6 +160,7 @@ class EventDrivenScheduler : public SchedulerInterface {
   bool CheckPodAntiAffinityNoConflictWithin(TaskDescriptor* rtd,
                                           TaskDescriptor* other_rtd);
   unordered_set<TaskID_t>* GetNoConflictTasksSet();
+  bool IsPGGangSchedulingJob(JobDescriptor* jdp);
 
   // Cached sets of runnable and blocked tasks; these are updated on each
   // execution of LazyGraphReduction. Note that this set includes tasks from all
@@ -207,12 +209,13 @@ class EventDrivenScheduler : public SchedulerInterface {
   unordered_set<JobDescriptor*> delta_jobs;
   // Pod affinity/anti-affinity gang schedule tasks deltas
   unordered_map<JobDescriptor*, vector<SchedulingDelta>> affinity_job_to_deltas_;
-  unordered_set<uint64_t> affinity_delta_tasks;
+  unordered_set<uint64_t> marked_delta_tasks;
   unordered_set<TaskID_t> no_conflict_root_tasks_;
   bool affinity_batch_schedule;
   unordered_map<TaskID_t, vector<TaskID_t>> no_conflict_tasks_map_;
   unordered_map<TaskID_t, TaskID_t> no_conflict_task_mapped_;
   unordered_map<TaskID_t, unordered_set<TaskID_t>> root_to_children_tasks_;
+  Firmament_Scheduler_Service_Utils* firmament_scheduler_serivice_utils_;
 };
 
 }  // namespace scheduler
