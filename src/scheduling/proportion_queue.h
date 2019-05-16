@@ -42,14 +42,14 @@ struct Resources_Available {
     memory_resource = 0;
     ephemeral_resource = 0;
   }
-  float GetCpuResource() {
+  inline float GetCpuResource() {
     return cpu_resource;
   }
-  uInt64_t GetMemoryResource() {
+  inline uInt64_t GetMemoryResource() {
     return memory_resource;
   }
 
-  uInt64_t GetEphimeralResource() {
+  inline uInt64_t GetEphimeralResource() {
     return ephemeral_resource;
   }
 
@@ -77,6 +77,44 @@ struct Resources_Available {
 
 };
 struct ResourceStatsAggregate {
+  inline float GetCpuCapcity() {
+    return resource_capcity.GetCpuResource();
+  }
+  inline uInt64_t GetMemeoryCapcity() {
+    return resource_capcity.GetMemoryResource();
+  }
+  inline uInt64_t GetEphimeralCapcity() {
+    return resource_capcity.GetEphimeralResource();
+  }
+  inline float GetCpuAllocatable() {
+    return resource_allocatable.GetCpuResource();
+  }
+  inline uInt64_t GetMemeoryAllocatable() {
+    return resource_allocatable.GetMemoryResource();
+    }
+  inline uInt64_t GetEphimeralAllocatable() {
+    return resource_allocatable.GetEphimeralResource();
+    }
+  inline void AddResourceCapacity(float cpuRes,
+                                  uInt64_t memoryRes,
+                                  uInt64_t epheRes) {
+    resource_capcity.AddResources(cpuRes, memoryRes, epheRes);
+  }
+  inline void AddResourceAllocatable(float cpuRes,
+                                     uInt64_t memoryRes,
+                                     uInt64_t epheRes) {
+    resource_allocatable.AddResources(cpuRes, memoryRes, epheRes);
+  }
+  inline void DeductResourceCapacity(float cpuRes,
+                                uInt64_t memoryRes,
+                                uInt64_t epheRes) {
+    resource_capcity.DeductResources(cpuRes, memoryRes, epheRes);
+  }
+  inline void DeductResourceAllocatable(float cpuRes,
+                                   uInt64_t memoryRes,
+                                   uInt64_t epheRes) {
+    resource_allocatable.DeductResources(cpuRes, memoryRes, epheRes);
+  }
   Resources_Available resource_capcity;
   Resources_Available resource_allocatable;
 };

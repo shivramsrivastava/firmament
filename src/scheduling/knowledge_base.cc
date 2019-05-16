@@ -378,35 +378,23 @@ uint64_t KnowledgeBase::GetResourceNonFirmamentTaskCount(ResourceID_t res_id) {
 }
 
 void KnowledgeBase::AddToResourceStatsAgg(ResourceStatsAggregate &resStatus) {
-  resource_stats_.resource_capcity.cpu_resource +=
-      resStatus.resource_capcity.cpu_resource;
-  resource_stats_.resource_capcity.memory_resource +=
-      resStatus.resource_capcity.memory_resource;
-  resource_stats_.resource_capcity.ephemeral_resource +=
-      resStatus.resource_capcity.ephemeral_resource;
-
-  resource_stats_.resource_allocatable.cpu_resource +=
-      resStatus.resource_allocatable.cpu_resource;
-  resource_stats_.resource_allocatable.memory_resource +=
-      resStatus.resource_allocatable.memory_resource;
-  resource_stats_.resource_allocatable.ephemeral_resource +=
-      resStatus.resource_allocatable.ephemeral_resource;
+  resource_stats_.AddResourceCapacity(resStatus.GetCpuCapcity(),
+                                      resStatus.GetMemeoryCapcity(),
+                                      resStatus.GetEphimeralCapcity());
+  resource_stats_.AddResourceAllocatable(resStatus.GetCpuAllocatable(),
+                                      resStatus.GetMemeoryAllocatable(),
+                                      resStatus.GetEphimeralAllocatable());
 }
+
 void KnowledgeBase::DeductFromResourceStatsAgg(
     ResourceStatsAggregate &resStatus) {
-  resource_stats_.resource_capcity.cpu_resource -=
-      resStatus.resource_capcity.cpu_resource;
-  resource_stats_.resource_capcity.memory_resource -=
-      resStatus.resource_capcity.memory_resource;
-  resource_stats_.resource_capcity.ephemeral_resource -=
-      resStatus.resource_capcity.ephemeral_resource;
-
-  resource_stats_.resource_allocatable.cpu_resource -=
-      resStatus.resource_allocatable.cpu_resource;
-  resource_stats_.resource_allocatable.memory_resource -=
-      resStatus.resource_allocatable.memory_resource;
-  resource_stats_.resource_allocatable.ephemeral_resource -=
-      resStatus.resource_allocatable.ephemeral_resource;
+  resource_stats_.DeductResourceCapacity(resStatus.GetCpuCapcity(),
+                                         resStatus.GetMemeoryCapcity(),
+                                         resStatus.GetEphimeralCapcity());
+  resource_stats_.DeductResourceAllocatable(resStatus.GetCpuAllocatable(),
+                                            resStatus.GetMemeoryAllocatable(),
+                                            resStatus.GetEphimeralAllocatable()
+                                           );
 }
 
 }  // namespace firmament
