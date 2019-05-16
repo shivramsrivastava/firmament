@@ -233,8 +233,8 @@ ArcDescriptor CpuCostModel::JobEquivClassToPGEquivClass(EquivClass_t ec1,
 
 ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
                                                    EquivClass_t ec2) {
-  string* pod_group_name = NULL;
   EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, ec1);
+  ArcCost_t arc_cost = omega_;
   if (job_ec) {
     JobID_t job_id = JobIDFromString(*FindOrNull(jobec_to_jobid_,*job_ec));
 
@@ -242,9 +242,16 @@ ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
     Firmament_Scheduler_Service_Utils::Instance();
     unordered_map<JobID_t, string, boost::hash<JobID_t>>* job_id_to_pod_group=
     firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
-    pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
+    if(job_id_to_pod_group) {
+      string* pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
+      if(pod_group_name) {
+        arc_cost = GetPodGroupDRFArchCost(pod_group_name);
+      } else {
+        //do we need to do anything else
+      }
+    } else {/* do we need to do anything else*/}
   }
-  return ArcDescriptor(GetPodGroupDRFArchCost(pod_group_name), 0, 0ULL);
+  return ArcDescriptor(arc_cost, 0, 0ULL);
 }
 
 ArcDescriptor CpuCostModel::EquivClassToEquivClass(EquivClass_t ec1,
@@ -568,44 +575,44 @@ vector<EquivClass_t>* CpuCostModel::GetPodGroupEquivClasses(
                       fmt_scheduler_service_utils_ptr->GetJobIdToPodGroupMap();
     string* pg_name = FindOrNull(*job_id_pg_name_map,
                                     JobIDFromString(*job_id));
-    CHECK_NOTNULL(pg_name);
-    boost::hash_combine(PG_agg, *pg_name + *job_id);
-    EquivClass_t PG_ec = static_cast<EquivClass_t>(PG_agg);
-    ecs->push_back(PG_ec);
-    InsertIfNotPresent(&podgroup_ec_to_jobid_, PG_ec, *job_id);
-    //TODO(Pratik): Get pod group name from job descriptor and use it here.
-    list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
-                                                *pg_name);
-    if (pg_ec_list &&
-        find(pg_ec_list->begin(), pg_ec_list->end(), PG_ec) ==
-            pg_ec_list->end()) {
-      uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
-      if (curr_cost) {
-        list<EquivClass_t>::iterator it = pg_ec_list->begin();
-        for ( ; it != pg_ec_list->end(); it++) {
-          EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *it);
-          if (job_ec) {
-            uint64_t* cost = FindOrNull(job_ec_to_cost_, *job_ec);
-            if (*curr_cost < *cost) {
-              //TODO(Pratik): Get pod group name from job descriptor and use it here.
-              break;
+    if(pg_name) {
+      boost::hash_combine(PG_agg, *pg_name + *job_id);
+      EquivClass_t PG_ec = static_cast<EquivClass_t>(PG_agg);
+      ecs->push_back(PG_ec);
+      InsertIfNotPresent(&podgroup_ec_to_jobid_, PG_ec, *job_id);
+      list<EquivClass_t>* pg_ec_list = FindOrNull(pg_name_to_pg_ec_inorder_,
+                                                  *pg_name);
+      if (pg_ec_list &&
+          find(pg_ec_list->begin(), pg_ec_list->end(), PG_ec) ==
+              pg_ec_list->end()) {
+        uint64_t* curr_cost = FindOrNull(job_ec_to_cost_, ec_id);
+        if (curr_cost) {
+          list<EquivClass_t>::iterator it = pg_ec_list->begin();
+          for ( ; it != pg_ec_list->end(); it++) {
+            EquivClass_t* job_ec = FindOrNull(pg_ec_to_job_ec_, *it);
+            if (job_ec) {
+              uint64_t* cost = FindOrNull(job_ec_to_cost_, *job_ec);
+              if (*curr_cost < *cost) {
+                 break;
+              }
             }
           }
+          if (it != pg_ec_list->end()) {
+            pg_ec_list->insert(it, PG_ec);
+          } else {
+            pg_ec_list->push_back(PG_ec);
+          }
         }
-        if (it != pg_ec_list->end()) {
-          pg_ec_list->insert(it, PG_ec);
-        } else {
-          pg_ec_list->push_back(PG_ec);
-        }
+      } else {
+        list<EquivClass_t> new_pg_ecs;
+        new_pg_ecs.push_back(PG_ec);
+        InsertIfNotPresent(&pg_name_to_pg_ec_inorder_, *pg_name, new_pg_ecs);
       }
+      InsertIfNotPresent(&pg_ec_to_pg_name_, PG_ec, *pg_name);
     } else {
-      list<EquivClass_t> new_pg_ecs;
-      new_pg_ecs.push_back(PG_ec);
-      //TODO(Pratik): Get pod group name from job descriptor and use it here.
-      InsertIfNotPresent(&pg_name_to_pg_ec_inorder_, *pg_name, new_pg_ecs);
+      delete ecs;
+      ecs = NULL;
     }
-    //TODO(Pratik): Get pod group name from job descriptor and use it here.
-    InsertIfNotPresent(&pg_ec_to_pg_name_, PG_ec, *pg_name);
   }
   return ecs;
 }
@@ -2014,13 +2021,18 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
     auto queue_map_Proportion_ptr =
         fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
     auto queue_proportion = FindOrNull(*queue_map_Proportion_ptr,
-                                          iter->first);
-    float cpu_cores_requst =
-        queue_proportion->GetAllocatedResource().GetCpuResource();
-    uInt64_t memory_resource_request =
-        queue_proportion->GetAllocatedResource().GetMemoryResource();
-    uInt64_t ephimeral_resource_request =
-        queue_proportion->GetAllocatedResource().GetEphimeralResource();
+                                       iter->first);
+    float cpu_cores_requst = 0;
+    uInt64_t memory_resource_request = 0;
+    uInt64_t ephimeral_resource_request = 0;
+    if(queue_proportion) {
+      cpu_cores_requst =
+          queue_proportion->GetAllocatedResource().GetCpuResource();
+      memory_resource_request =
+          queue_proportion->GetAllocatedResource().GetMemoryResource();
+      ephimeral_resource_request =
+          queue_proportion->GetAllocatedResource().GetEphimeralResource();
+    }
     // go through all the Pod group
     auto pg_list = iter->second;
     for (auto pgIter = pg_list.begin(); pgIter != pg_list.end(); pgIter++) {
@@ -2056,7 +2068,9 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 float deserved_cpu_for_q =
                     q_proportion_ptr->GetDeservedResource()
                         .GetCpuResource();  // this can be moved up
-                if ((deserved_cpu_for_q - cpu_cores_requst) < 0) {
+                //to avoid warning
+                int32_t difference = deserved_cpu_for_q -cpu_cores_requst;
+                if (difference  < 0) {
                   numOfTaskInJob =
                       numOfTaskInJob -
                       ceil((cpu_cores_requst - deserved_cpu_for_q) /
@@ -2066,7 +2080,8 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                     q_proportion_ptr->GetDeservedResource().GetMemoryResource();
                 memory_resource_request +=
                     numOfTaskInJob * resource_vector->ram_cap_;
-                if ((deserved_mem_for_q - memory_resource_request) < 0) {
+                difference = deserved_mem_for_q - memory_resource_request;
+                if (difference  < 0) {
                   numOfTaskInJob =
                       numOfTaskInJob -
                       ceil((memory_resource_request - deserved_mem_for_q) /
@@ -2077,8 +2092,8 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 uInt64_t deserved_ephimeral_for_q =
                     q_proportion_ptr->GetDeservedResource()
                         .GetEphimeralResource();
-                if ((deserved_ephimeral_for_q - ephimeral_resource_request) <
-                    0) {
+                difference = deserved_ephimeral_for_q - ephimeral_resource_request;
+                if ( difference  <  0) {
                   numOfTaskInJob = numOfTaskInJob -
                                    ceil((ephimeral_resource_request -
                                          deserved_ephimeral_for_q) /
@@ -2092,7 +2107,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                                    numOfTaskInJob);
               }
             } else {
-              continue;  // TBD****
+              continue;
             }
           }
         }
