@@ -842,6 +842,12 @@ class FirmamentSchedulerServiceImpl final : public FirmamentScheduler::Service {
       resource_stats.set_ephemeral_storage_utilization(
                                              ephemeral_storage_utilization);
 
+      resAgg.AddResourceCapacity(cpu_cores_capacity,
+                                 ram_capcity,
+                                 ephemeral_storage_capacity);
+      resAgg.AddResourceAllocatable(cpu_cores_available,
+                                    ram_available,
+                                    ephemeral_storage_available);
       //add all capacity allocatable to the aggregate.
       //so that no need to loop through all the nodes to get the total cpacity
       //and allocatable
@@ -1000,7 +1006,6 @@ Status QueueAdded(ServerContext* context,
                   const QueueDescriptor* queue_desc_ptr,
                   QueueAddedResponse* reply) override {
   boost::lock_guard<boost::recursive_mutex> lock(scheduler_->scheduling_lock_);
-
   if (queue_desc_ptr != NULL) {
     string queue_name(queue_desc_ptr->name());
     if(queue_name != string("")) {
@@ -1016,7 +1021,6 @@ Status QueueAdded(ServerContext* context,
 
         unordered_map<string, Queue_Proportion>* queue_map_proportion_ptr =
             firmament_scheduler_serivice_utils_->GetQueueMapToProportion();
-
         Queue_Proportion qProportion;
         InsertIfNotPresent(queue_map_proportion_ptr, queue_name,
                            qProportion);
@@ -1053,7 +1057,7 @@ Status QueueRemoved(ServerContext* context,
             firmament_scheduler_serivice_utils_->GetQtoOrderedPgListMap();
         if(queue_to_ordered_pg_list_map) {
           queue_to_ordered_pg_list_map->erase(queue_name);
-          LOG(INFO) << " Queue removed = " <<queue_name<< endl;
+          LOG(INFO) << " Queue removed = " <<queue_name<<"\n";
           reply->set_type(QUEUE_REMOVED_OK);
         } else {/*else do nothing*/}
       } else {
@@ -1131,13 +1135,12 @@ void UpdateDeservedProportion() {
                                                 it->first);
     if(itProportion) {
       ResourceStatsAggregate resAgg = knowledge_base_->GetResourceStatsAgg();
-      //*** TBD simplify this
       itProportion->SetDeservedResource(
           resAgg.resource_allocatable.cpu_resource * it->second,
           resAgg.resource_allocatable.memory_resource * it->second,
           resAgg.resource_allocatable.ephemeral_resource * it->second);
     } else {
-      LOG(INFO) << "itProportion is NULL";
+      LOG(INFO) << "Proportion  should not be NULL ";
     }
   }
 }
@@ -1165,9 +1168,15 @@ Status PodGroupAdded(ServerContext* context,
       if(queue_name == string("")) {
         queue_name = string(DEFAULT_QUEUE_NAME);
       }
-
-      InsertIfNotPresent(pod_group_to_queue_map_ptr,
-      pod_group_desc_ptr->name(),queue_name);
+     auto q_descriptor = FindOrNull(*queue_map_.get(), queue_name);
+     if(q_descriptor) {
+         InsertIfNotPresent(pod_group_to_queue_map_ptr,
+         pod_group_desc_ptr->name(),queue_name);
+     } else {
+        queue_name = string(DEFAULT_QUEUE_NAME);
+        InsertIfNotPresent(pod_group_to_queue_map_ptr,
+             pod_group_desc_ptr->name(),queue_name);
+      }
 
       //insert the element with pod group name and resource allocated by it.
       unordered_map<string, Resource_Allocated> * pgToResourceAllocted =

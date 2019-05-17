@@ -244,13 +244,14 @@ ArcDescriptor CpuCostModel::PGEquivClassToEquivClass(EquivClass_t ec1,
     firmament_scheduler_serivice_utils->GetJobIdToPodGroupMap();
     if(job_id_to_pod_group) {
       string* pod_group_name = FindOrNull(*job_id_to_pod_group, job_id);
-      if(pod_group_name) {
+       if(pod_group_name) {
         arc_cost = GetPodGroupDRFArchCost(pod_group_name);
       } else {
         //do we need to do anything else
       }
     } else {/* do we need to do anything else*/}
   }
+//  LOG(INFO)<<" arc_cost = "<<arc_cost;
   return ArcDescriptor(arc_cost, 0, 0ULL);
 }
 
@@ -2011,7 +2012,6 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
     unordered_map<EquivClass_t, uint32_t>* pgec_to_max_flow_map) {
   Firmament_Scheduler_Service_Utils* fmt_scheduler_service_utils_ptr =
       Firmament_Scheduler_Service_Utils::Instance();
-
   unordered_map<string, list<string>>* q_to_ordered_pg_list_map =
       fmt_scheduler_service_utils_ptr->GetQtoOrderedPgListMap();
   // go through all the Queues in the map
@@ -2032,7 +2032,6 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
           queue_proportion->GetAllocatedResource().GetMemoryResource();
       ephimeral_resource_request =
           queue_proportion->GetAllocatedResource().GetEphimeralResource();
-    }
     // go through all the Pod group
     auto pg_list = iter->second;
     for (auto pgIter = pg_list.begin(); pgIter != pg_list.end(); pgIter++) {
@@ -2059,17 +2058,11 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                     FindOrNull(task_resource_requirement_, *it);
                 cpu_cores_requst +=
                     numOfTaskInJob * resource_vector->cpu_cores_;
-                // ResourceStatsAggregate* resource_Agg_ptr =
-                //  knowledge_base_->GetResourceStatsAgg();
-                auto* queue_map_proportion_ptr =
-                    fmt_scheduler_service_utils_ptr->GetQueueMapToProportion();
-                Queue_Proportion* q_proportion_ptr =
-                    FindOrNull(*queue_map_proportion_ptr, iter->first);
                 float deserved_cpu_for_q =
-                    q_proportion_ptr->GetDeservedResource()
+                    queue_proportion->GetDeservedResource()
                         .GetCpuResource();  // this can be moved up
                 //to avoid warning
-                int32_t difference = deserved_cpu_for_q -cpu_cores_requst;
+                double difference = deserved_cpu_for_q -cpu_cores_requst;
                 if (difference  < 0) {
                   numOfTaskInJob =
                       numOfTaskInJob -
@@ -2077,7 +2070,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                            resource_vector->cpu_cores_);
                 }
                 uInt64_t deserved_mem_for_q =
-                    q_proportion_ptr->GetDeservedResource().GetMemoryResource();
+                    queue_proportion->GetDeservedResource().GetMemoryResource();
                 memory_resource_request +=
                     numOfTaskInJob * resource_vector->ram_cap_;
                 difference = deserved_mem_for_q - memory_resource_request;
@@ -2090,7 +2083,7 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                 ephimeral_resource_request +=
                     numOfTaskInJob * resource_vector->ephemeral_storage_;
                 uInt64_t deserved_ephimeral_for_q =
-                    q_proportion_ptr->GetDeservedResource()
+                    queue_proportion->GetDeservedResource()
                         .GetEphimeralResource();
                 difference = deserved_ephimeral_for_q - ephimeral_resource_request;
                 if ( difference  <  0) {
@@ -2103,15 +2096,23 @@ void CpuCostModel::CalculateMaxFlowForPgEcToTaskEc(
                   numOfTaskInJob = 0;
                   break;
                 }
+                LOG(INFO) <<"max flow = "<<numOfTaskInJob;
                 InsertIfNotPresent(pgec_to_max_flow_map, *pgEcIter,
                                    numOfTaskInJob);
               }
             } else {
               continue;
             }
+          } else {
+            LOG(INFO)<<"Job e c should not be  null ";
           }
         }
+      }  else {
+        LOG(INFO)<<" PG ec should not be NULL";
       }
+    }
+    }  else  {
+    LOG(INFO)<<" Queue proportion should not be null"<<endl;
     }
   }
 }
